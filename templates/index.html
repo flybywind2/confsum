@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Confluence Auto-Summarization</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script>
+        // 즉시 로드되는 전역 함수들
+        async function handleKeywordMindmap() {
+            console.log('🚀 handleKeywordMindmap 즉시 함수 호출됨');
+            
+            try {
+                const response = await fetch('/keywords');
+                console.log('📡 키워드 API 응답:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const keywords = await response.json();
+                console.log('📋 키워드 목록:', keywords.length, '개');
+                
+                if (keywords.length === 0) {
+                    alert('저장된 키워드가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
+                    return;
+                }
+                
+                // 간단한 키워드 선택
+                const keyword = prompt(`키워드를 선택하세요:\n\n${keywords.slice(0, 10).join('\n')}\n\n위 중 하나를 입력하세요:`);
+                
+                console.log('🔍 입력된 키워드:', keyword);
+                console.log('📋 키워드 목록에 포함 여부:', keywords.includes(keyword));
+                console.log('📋 키워드 목록 샘플:', keywords.slice(0, 10));
+                
+                if (keyword) {
+                    if (keywords.includes(keyword)) {
+                        console.log('✅ 키워드 선택됨:', keyword);
+                        const url = `/mindmap?mode=keyword&keyword=${encodeURIComponent(keyword)}`;
+                        console.log('🔗 생성된 URL:', url);
+                        console.log('🚀 새 창 열기 시도...');
+                        
+                        // 새 창 열기 시도
+                        const newWindow = window.open(url, '_blank');
+                        
+                        // 팝업 차단 확인
+                        if (newWindow) {
+                            console.log('✅ 새 창 열기 성공');
+                        } else {
+                            console.log('❌ 새 창 열기 실패 (팝업 차단?), 같은 창에서 이동');
+                            if (confirm('새 창이 차단되었습니다. 현재 창에서 이동하시겠습니까?')) {
+                                window.location.href = url;
+                            }
+                        }
+                    } else {
+                        console.log('❌ 유효하지 않은 키워드:', keyword);
+                        // 대소문자 구분 없이 검색
+                        const keywordLower = keyword.toLowerCase();
+                        const matchedKeyword = keywords.find(k => k.toLowerCase() === keywordLower);
+                        
+                        if (matchedKeyword) {
+                            console.log('🔄 대소문자 무시하고 매칭됨:', matchedKeyword);
+                            const url = `/mindmap?mode=keyword&keyword=${encodeURIComponent(matchedKeyword)}`;
+                            console.log('🔗 생성된 URL:', url);
+                            
+                            const newWindow = window.open(url, '_blank');
+                            if (!newWindow) {
+                                console.log('❌ 새 창 열기 실패, 같은 창에서 이동');
+                                if (confirm('새 창이 차단되었습니다. 현재 창에서 이동하시겠습니까?')) {
+                                    window.location.href = url;
+                                }
+                            }
+                        } else {
+                            alert(`유효하지 않은 키워드입니다.\n입력: "${keyword}"\n\n사용 가능한 키워드:\n${keywords.slice(0, 10).join('\n')}`);
+                        }
+                    }
+                } else {
+                    console.log('🚫 키워드 입력 취소됨');
+                }
+                
+            } catch (error) {
+                console.error('❌ 키워드 마인드맵 오류:', error);
+                alert(`오류 발생: ${error.message}`);
+            }
+        }
+        
+        async function handleAllMindmap() {
+            console.log('🚀 handleAllMindmap 함수 호출됨');
+            
+            try {
+                const response = await fetch('/pages/stats');
+                const stats = await response.json();
+                
+                if (stats.total_pages === 0) {
+                    alert('저장된 페이지가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
+                    return;
+                }
+                
+                console.log('전체 마인드맵 페이지로 이동');
+                window.open('/mindmap?mode=all', '_blank');
+                
+            } catch (error) {
+                console.error('전체 마인드맵 오류:', error);
+                alert('전체 마인드맵을 불러오는 중 오류가 발생했습니다.');
+            }
+        }
+        
+        function handleSpecificMindmap() {
+            console.log('🚀 handleSpecificMindmap 함수 호출됨');
+            
+            const pageId = prompt('마인드맵을 생성할 페이지 ID를 입력하세요:');
+            
+            if (!pageId) {
+                return;
+            }
+            
+            if (!/^\d+$/.test(pageId.trim())) {
+                alert('유효한 페이지 ID를 입력해주세요. (숫자만)');
+                return;
+            }
+            
+            console.log('페이지 마인드맵으로 이동:', pageId);
+            window.open(`/mindmap?parent_id=${pageId.trim()}`, '_blank');
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Confluence Auto-Summarization System</h1>
+            <p>Confluence 페이지 자동 요약 및 키워드 추출 시스템</p>
+            <nav style="margin-top: 15px;">
+                <a href="/data" class="btn btn-info">데이터 조회</a>
+                <button id="viewAllMindmap" class="btn btn-secondary" onclick="handleAllMindmap()">전체 마인드맵</button>
+                <button id="viewSpecificMindmap" class="btn btn-primary" onclick="handleSpecificMindmap()">페이지 마인드맵</button>
+                <button id="viewKeywordMindmap" class="btn btn-success" onclick="handleKeywordMindmap()">키워드 마인드맵</button>
+            </nav>
+        </header>
+        
+        <!-- 연결 설정 섹션 -->
+        <section class="card">
+            <h2>Confluence 연결 설정</h2>
+            <form id="connectionForm">
+                <div class="form-group">
+                    <label for="confluenceUrl">Confluence URL:</label>
+                    <input type="url" id="confluenceUrl" placeholder="https://your-confluence.com" required>
+                </div>
+                <div class="form-group">
+                    <label for="username">사용자 ID:</label>
+                    <input type="text" id="username" placeholder="사용자 ID" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">비밀번호:</label>
+                    <input type="password" id="password" placeholder="비밀번호" required>
+                </div>
+                <button type="button" id="testConnection" class="btn btn-primary">연결 테스트</button>
+            </form>
+            <div id="connectionStatus" class="status-message"></div>
+        </section>
+        
+        <!-- 페이지 처리 섹션 -->
+        <section class="card">
+            <h2>페이지 처리</h2>
+            <form id="processForm">
+                <div class="form-group">
+                    <label for="pageId">부모 페이지 ID:</label>
+                    <input type="text" id="pageId" placeholder="예: 123456789" required>
+                    <small>Confluence 페이지의 ID를 입력하세요</small>
+                </div>
+                <button type="submit" id="processPages" class="btn btn-success" disabled>처리 시작</button>
+            </form>
+            <div id="processStatus" class="status-message"></div>
+            <div id="progressBar" class="progress-bar" style="display: none;">
+                <div class="progress-fill"></div>
+                <span class="progress-text">0%</span>
+            </div>
+        </section>
+        
+        <!-- 결과 표시 섹션 -->
+        <section class="card">
+            <h2>처리 결과</h2>
+            <div id="results" class="results-container"></div>
+            <div class="action-buttons">
+                <button id="viewMindmap" class="btn btn-info" disabled>마인드맵 보기</button>
+                <button id="downloadResults" class="btn btn-secondary" disabled>결과 다운로드</button>
+            </div>
+        </section>
+        
+        <!-- 로그 섹션 -->
+        <section class="card">
+            <h2>처리 로그</h2>
+            <div id="logContainer" class="log-container">
+                <pre id="logContent">로그가 여기에 표시됩니다...</pre>
+            </div>
+        </section>
+    </div>
+    
+    <script src="/static/main.js"></script>
+</body>
+</html>
