@@ -1,5 +1,14 @@
 venv/
 data/
+archive/
+logs/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.DS_Store
+Thumbs.db
 prd.md
 trd.md
 CLAUDE.md
