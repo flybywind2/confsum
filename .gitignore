@@ -12,3 +12,7 @@ Thumbs.db
 prd.md
 trd.md
 CLAUDE.md
+data/pages.db
+
+# YoYo AI version control directory
+.yoyo/
