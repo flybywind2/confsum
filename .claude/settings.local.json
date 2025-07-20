@@ -1,7 +1,32 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mkdir:*)"
+      "Bash(mkdir:*)",
+      "Bash(claude mcp:*)",
+      "Bash(claude --debug)",
+      "mcp__Context7__resolve-library-id",
+      "mcp__Context7__get-library-docs",
+      "mcp__sequential-thinking__sequentialthinking",
+      "Bash(node:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:developer.atlassian.com)",
+      "Bash(curl:*)",
+      "Bash(venvScripts:*)",
+      "Bash(source:*)",
+      "Bash(pkill:*)",
+      "Bash(true)",
+      "Bash(./venv/Scripts/activate)",
+      "Bash(taskkill:*)",
+      "Bash(powershell:*)",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_select_option",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_handle_dialog",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_close"
     ],
     "deny": []
   }

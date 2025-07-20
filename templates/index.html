@@ -105,23 +105,6 @@
             }
         }
         
-        function handleSpecificMindmap() {
-            console.log('🚀 handleSpecificMindmap 함수 호출됨');
-            
-            const pageId = prompt('마인드맵을 생성할 페이지 ID를 입력하세요:');
-            
-            if (!pageId) {
-                return;
-            }
-            
-            if (!/^\d+$/.test(pageId.trim())) {
-                alert('유효한 페이지 ID를 입력해주세요. (숫자만)');
-                return;
-            }
-            
-            console.log('페이지 마인드맵으로 이동:', pageId);
-            window.open(`/mindmap?parent_id=${pageId.trim()}`, '_blank');
-        }
     </script>
 </head>
 <body>
@@ -131,9 +114,9 @@
             <p>Confluence 페이지 자동 요약 및 키워드 추출 시스템</p>
             <nav style="margin-top: 15px;">
                 <a href="/data" class="btn btn-info">데이터 조회</a>
-                <button id="viewAllMindmap" class="btn btn-secondary" onclick="handleAllMindmap()">전체 마인드맵</button>
-                <button id="viewSpecificMindmap" class="btn btn-primary" onclick="handleSpecificMindmap()">페이지 마인드맵</button>
+                <button id="viewAllMindmap" class="btn btn-secondary" onclick="handleAllMindmap()">타이틀 마인드맵</button>
                 <button id="viewKeywordMindmap" class="btn btn-success" onclick="handleKeywordMindmap()">키워드 마인드맵</button>
+                <a href="/user-mindmap" class="btn btn-warning">사용자별 마인드맵</a>
             </nav>
         </header>
         
@@ -153,7 +136,7 @@
                     <label for="password">비밀번호:</label>
                     <input type="password" id="password" placeholder="비밀번호" required>
                 </div>
-                <button type="button" id="testConnection" class="btn btn-primary">연결 테스트</button>
+                <button type="button" id="testConnection" class="btn btn-primary">연결</button>
             </form>
             <div id="connectionStatus" class="status-message"></div>
         </section>

@@ -8,6 +8,149 @@ let currentThreshold = 0.2;
 let currentSimulation = null;
 let currentSvg = null;
 
+// 모달 관련 함수들 (상단에 정의)
+async function openPageModal(pageId) {
+    try {
+        console.log('🔗 페이지 모달 열기:', pageId);
+        
+        // 모달 요소 확인
+        const modal = document.getElementById('pageContentModal');
+        if (!modal) {
+            console.error('모달 요소를 찾을 수 없습니다');
+            return;
+        }
+        
+        // 로딩 표시
+        showModal();
+        
+        // 모달 내용 요소들 확인
+        const titleEl = document.getElementById('modalTitle');
+        const contentEl = document.getElementById('modalContent');
+        
+        if (!titleEl || !contentEl) {
+            console.error('모달 내부 요소를 찾을 수 없습니다');
+            return;
+        }
+        
+        titleEl.textContent = '로딩 중...';
+        contentEl.innerHTML = '<div style="text-align: center; padding: 40px;"><div style="display: inline-block; width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite;"></div> 페이지 내용을 불러오는 중...</div>';
+        
+        const response = await fetch(`/pages/${pageId}/content`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const pageData = await response.json();
+        
+        // 현재 페이지 데이터 저장
+        currentModalPageData = pageData;
+        
+        // 모달 제목 설정
+        titleEl.textContent = pageData.title || '제목 없음';
+        
+        // 키워드 태그 생성
+        const keywordsHtml = Array.isArray(pageData.keywords) ? 
+            pageData.keywords.map(keyword => 
+                `<span style="background: #e3f2fd; color: #1976d2; padding: 3px 8px; border-radius: 12px; font-size: 12px; margin: 2px;">${keyword}</span>`
+            ).join(' ') : '키워드 없음';
+        
+        // 날짜 포맷팅
+        const formatDate = (dateStr) => {
+            if (!dateStr) return '정보 없음';
+            try {
+                return new Date(dateStr).toLocaleString('ko-KR');
+            } catch {
+                return dateStr;
+            }
+        };
+        
+        // 모달 내용 설정
+        contentEl.innerHTML = `
+            <div style="margin-bottom: 20px;">
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+                        <div>
+                            <strong style="color: #495057;">📄 페이지 ID:</strong><br>
+                            <span style="font-family: monospace; background: #e9ecef; padding: 2px 6px; border-radius: 4px;">${pageData.page_id}</span>
+                        </div>
+                        <div>
+                            <strong style="color: #495057;">🔗 원본 링크:</strong><br>
+                            <a href="${pageData.url}" target="_blank" style="color: #007bff; text-decoration: none;">Confluence에서 보기 →</a>
+                        </div>
+                        <div>
+                            <strong style="color: #495057;">📅 생성일:</strong><br>
+                            <span>${formatDate(pageData.created_date)}</span>
+                        </div>
+                        <div>
+                            <strong style="color: #495057;">✏️ 수정일:</strong><br>
+                            <span>${formatDate(pageData.modified_date)}</span>
+                        </div>
+                        <div>
+                            <strong style="color: #495057;">👤 생성자:</strong><br>
+                            <span>${pageData.created_by || '정보 없음'}</span>
+                        </div>
+                        <div>
+                            <strong style="color: #495057;">✍️ 수정자:</strong><br>
+                            <span>${pageData.modified_by || '정보 없음'}</span>
+                        </div>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <strong style="color: #495057;">🏷️ 키워드:</strong><br>
+                        <div style="margin-top: 8px;">${keywordsHtml}</div>
+                    </div>
+                </div>
+                
+                <div style="background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px;">
+                    <h4 style="color: #495057; margin-top: 0; border-bottom: 2px solid #e9ecef; padding-bottom: 10px;">📋 요약</h4>
+                    ${createSummarySelector(pageData)}
+                    <div id="modal-summary-content" style="line-height: 1.6; color: #6c757d; margin-bottom: 20px;">
+                        ${pageData.summary || '요약 정보가 없습니다.'}
+                    </div>
+                    
+                    <h4 style="color: #495057; border-bottom: 2px solid #e9ecef; padding-bottom: 10px;">📖 전체 내용</h4>
+                    <div style="line-height: 1.6; color: #495057; max-height: 400px; overflow-y: auto; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+                        ${pageData.content ? pageData.content.replace(/\n/g, '<br>') : '내용이 없습니다.'}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+    } catch (error) {
+        console.error('❌ 페이지 모달 오류:', error);
+        const contentEl = document.getElementById('modalContent');
+        if (contentEl) {
+            contentEl.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #dc3545;">
+                    <h4>오류 발생</h4>
+                    <p>페이지 내용을 불러오는 중 오류가 발생했습니다.</p>
+                    <p style="font-family: monospace; background: #f8f9fa; padding: 10px; border-radius: 5px;">${error.message}</p>
+                </div>
+            `;
+        }
+    }
+}
+
+function showModal() {
+    const modal = document.getElementById('pageContentModal');
+    if (modal) {
+        modal.style.display = 'block';
+        document.body.style.overflow = 'hidden'; // 배경 스크롤 방지
+    }
+}
+
+function closeModal() {
+    const modal = document.getElementById('pageContentModal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = 'auto'; // 배경 스크롤 복원
+    }
+}
+
+// 전역 함수로 등록
+window.openPageModal = openPageModal;
+window.closeModal = closeModal;
+
 // 키워드 마인드맵 로드
 async function loadKeywordMindmap(keyword) {
     console.log(`🎯 키워드 마인드맵 로드: ${keyword}`);
@@ -81,6 +224,45 @@ async function loadAllMindmap() {
     } catch (error) {
         console.error(`❌ 전체 마인드맵 로드 실패:`, error);
         showMessage(`전체 마인드맵 로드 실패: ${error.message}`);
+    }
+}
+
+// 전체 키워드 네트워크 마인드맵 로드
+async function loadAllKeywordsMindmap() {
+    console.log('🏷️ 전체 키워드 네트워크 마인드맵 로드 시작');
+    
+    try {
+        const response = await fetch(`/mindmap-all-keywords?threshold=${currentThreshold}&limit=200`);
+        console.log(`📡 API 응답: ${response.status}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log(`📊 데이터: 노드 ${data.nodes?.length || 0}개, 링크 ${data.links?.length || 0}개`);
+        
+        if (!data.nodes || data.nodes.length === 0) {
+            showMessage('저장된 키워드가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
+            return;
+        }
+        
+        // 제목 업데이트
+        document.querySelector('h1').textContent = '전체 키워드 네트워크 마인드맵';
+        document.querySelector('#subtitle').textContent = `${data.nodes.length}개 주요 키워드 간의 관계 네트워크`;
+        
+        // 전역 변수에 저장
+        currentNodes = data.nodes;
+        currentLinks = data.links;
+        
+        // 간단한 D3 시각화
+        createSimpleVisualization(currentNodes, currentLinks);
+        
+        console.log('✅ 전체 키워드 네트워크 마인드맵 로드 완료');
+        
+    } catch (error) {
+        console.error(`❌ 전체 키워드 마인드맵 로드 실패:`, error);
+        showMessage(`전체 키워드 마인드맵 로드 실패: ${error.message}`);
     }
 }
 
@@ -196,49 +378,116 @@ function showKeywordPages(nodeData, infoDiv) {
     const keyword = nodeData.title;
     
     try {
-        // summary에서 페이지 정보 JSON 파싱
-        const pages = JSON.parse(nodeData.summary);
+        // summary가 JSON인지 일반 텍스트인지 확인
+        let pages;
+        if (nodeData.summary.startsWith('[') || nodeData.summary.startsWith('{')) {
+            // JSON 형태의 페이지 정보 (기존 키워드 마인드맵)
+            pages = JSON.parse(nodeData.summary);
+        } else {
+            // 단순 텍스트 형태라면 JSON 파싱을 시도해보고, 실패하면 기본 메시지 표시
+            try {
+                pages = JSON.parse(nodeData.summary);
+            } catch (secondError) {
+                // JSON 파싱에 실패한 경우 기본 정보만 표시
+                infoDiv.innerHTML = `
+                    <h4>🔑 키워드: "${keyword}"</h4>
+                    <p>${nodeData.summary}</p>
+                    <p><em>이 키워드에 대한 상세 페이지 정보를 불러올 수 없습니다.</em></p>
+                `;
+                return;
+            }
+        }
+        
+        // 페이지들을 최근 수정일 순으로 정렬
+        pages.sort((a, b) => {
+            const dateA = new Date(a.modified_date || a.created_date || '1970-01-01');
+            const dateB = new Date(b.modified_date || b.created_date || '1970-01-01');
+            return dateB - dateA;
+        });
         
         let pagesHtml = `
-            <h4>🔑 키워드: "${keyword}"</h4>
-            <p><strong>포함된 페이지 수:</strong> ${pages.length}개</p>
-            <div style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px; padding: 10px; margin-top: 10px;">
+            <div style="margin-bottom: 15px; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-radius: 8px;">
+                <h4 style="margin: 0 0 10px 0; font-size: 18px;">🔑 키워드: "${keyword}"</h4>
+                <div style="display: flex; gap: 20px; flex-wrap: wrap; font-size: 14px;">
+                    <div><strong>📊 포함된 페이지:</strong> ${pages.length}개</div>
+                    <div><strong>📅 최근 업데이트:</strong> ${pages[0]?.modified_date ? new Date(pages[0].modified_date).toLocaleDateString('ko-KR') : '정보 없음'}</div>
+                </div>
+            </div>
+            <div style="max-height: 450px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
         `;
         
         pages.forEach((page, index) => {
             const pageKeywords = Array.isArray(page.keywords) ? page.keywords.join(", ") : "키워드 없음";
+            const modifiedDate = page.modified_date ? new Date(page.modified_date).toLocaleDateString('ko-KR') : '정보 없음';
+            const summary = page.summary || '요약 정보가 없습니다.';
+            const truncatedSummary = summary.length > 120 ? summary.substring(0, 120) + '...' : summary;
+            const truncatedKeywords = pageKeywords.length > 60 ? pageKeywords.substring(0, 60) + '...' : pageKeywords;
             
             pagesHtml += `
-                <div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px; border-left: 3px solid #007bff;">
-                    <div style="font-weight: bold; color: #2c3e50; margin-bottom: 5px;">
-                        ${index + 1}. ${page.title}
-                    </div>
-                    <div style="font-size: 0.9em; color: #6c757d; margin-bottom: 5px;">
-                        ID: ${page.page_id}
-                    </div>
-                    <div style="margin-bottom: 5px;">
-                        <strong>키워드:</strong> ${pageKeywords}
-                    </div>
-                    <div style="margin-bottom: 5px;">
-                        <strong>요약:</strong> ${page.summary || '요약 없음'}
-                    </div>
-                    ${page.url ? `
-                        <div>
-                            <a href="${page.url}" target="_blank" style="color: #007bff; text-decoration: none;">
-                                📄 원본 페이지 보기
-                            </a> |
-                            <a href="#" onclick="window.openPageModal('${page.page_id}')" style="color: #28a745; text-decoration: none;">
-                                📖 상세 내용 보기
-                            </a>
+                <div style="border-bottom: 1px solid #f0f0f0; padding: 15px; ${index === pages.length - 1 ? 'border-bottom: none;' : ''} transition: all 0.2s;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                        <div style="flex: 1;">
+                            <h5 style="margin: 0 0 5px 0; color: #2c3e50; font-size: 16px; font-weight: 600;">
+                                <a href="${page.url}" target="_blank" style="text-decoration: none; color: #3498db;">
+                                    📄 ${page.title}
+                                </a>
+                            </h5>
+                            <small style="color: #888; font-size: 12px;">
+                                ID: ${page.page_id} | 수정일: ${modifiedDate}
+                            </small>
                         </div>
-                    ` : ''}
+                    </div>
+                    
+                    <div style="margin-bottom: 12px; padding: 10px; background: #f8f9fa; border-radius: 5px; border-left: 3px solid #3498db;">
+                        <p style="margin: 0; font-size: 14px; color: #555; line-height: 1.5;">
+                            ${truncatedSummary}
+                        </p>
+                    </div>
+                    
+                    <div style="margin-bottom: 10px;">
+                        <div style="display: inline-block; padding: 5px 10px; background: #e8f4fd; border-radius: 15px; font-size: 12px;">
+                            <strong style="color: #2980b9;">🏷️ 키워드:</strong> 
+                            <span style="color: #34495e;">${truncatedKeywords}</span>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button class="detail-btn" data-page-id="${page.page_id}" 
+                                style="background: linear-gradient(135deg, #3498db, #2980b9); color: white; border: none; padding: 6px 12px; border-radius: 5px; font-size: 12px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                            📖 상세보기
+                        </button>
+                        <a href="${page.url}" target="_blank" 
+                           style="background: linear-gradient(135deg, #27ae60, #229954); color: white; text-decoration: none; padding: 6px 12px; border-radius: 5px; font-size: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                            🔗 원본보기
+                        </a>
+                    </div>
                 </div>
             `;
         });
         
-        pagesHtml += `</div>`;
+        pagesHtml += `
+            </div>
+            <div style="margin-top: 15px; padding: 10px; background: #f1f8ff; border-radius: 5px; border-left: 3px solid #3498db;">
+                <small style="color: #2c3e50; line-height: 1.4;">
+                    💡 <strong>팁:</strong> 페이지는 최근 수정일 순으로 정렬되어 있습니다. 
+                    '상세보기'로 페이지 내용을 미리 보거나 '원본보기'로 Confluence에서 직접 확인할 수 있습니다.
+                </small>
+            </div>
+        `;
         
         infoDiv.innerHTML = pagesHtml;
+        
+        // 상세보기 버튼들에 이벤트 리스너 추가
+        const detailButtons = infoDiv.querySelectorAll('.detail-btn');
+        detailButtons.forEach(button => {
+            button.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const pageId = this.getAttribute('data-page-id');
+                console.log('상세보기 버튼 클릭:', pageId);
+                openPageModal(pageId);
+            });
+        });
         
     } catch (error) {
         console.error('키워드 페이지 정보 파싱 오류:', error);
@@ -619,7 +868,7 @@ async function goToAllMindmap() {
 
 // 키워드 마인드맵으로 이동하는 함수
 async function goToKeywordMindmap() {
-    console.log('🚀 전체 키워드 마인드맵으로 이동 시작');
+    console.log('🚀 전체 키워드 네트워크 마인드맵으로 이동 시작');
     
     try {
         // 페이지 통계 확인 (키워드 존재 여부)
@@ -643,19 +892,13 @@ async function goToKeywordMindmap() {
             return;
         }
         
-        // 가장 빈도가 높은 키워드를 기본값으로 사용하여 키워드 마인드맵으로 이동
-        if (stats.top_keywords && stats.top_keywords.length > 0) {
-            const topKeyword = stats.top_keywords[0].keyword;
-            console.log('🔝 최상위 키워드 사용:', topKeyword);
-            
-            const url = `/mindmap?mode=keyword&keyword=${encodeURIComponent(topKeyword)}`;
-            console.log('🔗 생성된 URL:', url);
-            
-            // 현재 창에서 이동
-            window.location.href = url;
-        } else {
-            alert('키워드 정보를 불러올 수 없습니다.');
-        }
+        // 전체 키워드 네트워크 마인드맵으로 이동
+        console.log('🏷️ 전체 키워드 네트워크 마인드맵으로 이동');
+        const url = '/mindmap?mode=all_keywords';
+        console.log('🔗 생성된 URL:', url);
+        
+        // 현재 창에서 이동
+        window.location.href = url;
         
     } catch (error) {
         console.error('❌ 키워드 마인드맵 이동 오류:', error);
@@ -663,171 +906,6 @@ async function goToKeywordMindmap() {
     }
 }
 
-// 전역 함수: 페이지 모달 열기 (data.js와 동일한 기능)
-window.openPageModal = async function(pageId) {
-    try {
-        console.log('🔗 페이지 모달 열기:', pageId);
-        
-        // 페이지 내용 가져오기
-        const response = await fetch(`/pages/${pageId}/content`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const pageData = await response.json();
-        
-        // 새 창에서 페이지 내용 표시
-        const newWindow = window.open('', '_blank', 'width=900,height=700,scrollbars=yes,resizable=yes');
-        
-        const content = `
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>${pageData.title}</title>
-                <meta charset="utf-8">
-                <style>
-                    body { 
-                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-                        margin: 0; 
-                        padding: 20px; 
-                        line-height: 1.6; 
-                        background-color: #f8f9fa;
-                    }
-                    .container {
-                        max-width: 800px;
-                        margin: 0 auto;
-                        background: white;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                        overflow: hidden;
-                    }
-                    .header { 
-                        background: #2c3e50; 
-                        color: white; 
-                        padding: 20px; 
-                        margin-bottom: 0; 
-                    }
-                    .title { 
-                        margin: 0 0 10px 0; 
-                        font-size: 1.8em; 
-                        font-weight: 600;
-                    }
-                    .meta { 
-                        opacity: 0.8; 
-                        font-size: 0.9em; 
-                    }
-                    .meta a { 
-                        color: #3498db; 
-                        text-decoration: none; 
-                    }
-                    .meta a:hover { 
-                        text-decoration: underline; 
-                    }
-                    .content-area {
-                        padding: 20px;
-                    }
-                    .section { 
-                        margin: 25px 0; 
-                    }
-                    .section-title { 
-                        color: #2c3e50; 
-                        font-weight: 600; 
-                        margin-bottom: 15px; 
-                        font-size: 1.1em;
-                        border-bottom: 2px solid #ecf0f1;
-                        padding-bottom: 8px;
-                    }
-                    .keyword-tag { 
-                        display: inline-block; 
-                        background: #3498db; 
-                        color: white; 
-                        padding: 4px 12px; 
-                        margin: 3px; 
-                        border-radius: 20px; 
-                        font-size: 0.85em; 
-                        font-weight: 500;
-                    }
-                    .content-text { 
-                        background: #f8f9fa; 
-                        padding: 20px; 
-                        border-radius: 6px; 
-                        white-space: pre-wrap; 
-                        max-height: 400px; 
-                        overflow-y: auto; 
-                        border: 1px solid #e9ecef;
-                        font-family: 'Courier New', monospace;
-                        font-size: 0.9em;
-                        line-height: 1.5;
-                    }
-                    .summary-text { 
-                        background: #e8f6ff; 
-                        padding: 20px; 
-                        border-radius: 6px; 
-                        border-left: 4px solid #3498db; 
-                        font-style: italic;
-                    }
-                    .keywords-container {
-                        min-height: 50px;
-                    }
-                    .no-content {
-                        color: #7f8c8d;
-                        font-style: italic;
-                        text-align: center;
-                        padding: 20px;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1 class="title">${pageData.title}</h1>
-                        <div class="meta">
-                            📋 페이지 ID: ${pageData.page_id} | 
-                            📅 수정일: ${pageData.modified_date || '정보 없음'} | 
-                            <a href="${pageData.url || '#'}" target="_blank">🔗 원본 페이지 보기</a>
-                        </div>
-                    </div>
-                    
-                    <div class="content-area">
-                        <div class="section">
-                            <div class="section-title">📝 요약</div>
-                            <div class="summary-text">${pageData.summary || '요약이 없습니다.'}</div>
-                        </div>
-                        
-                        <div class="section">
-                            <div class="section-title">🏷️ 키워드</div>
-                            <div class="keywords-container">
-                                ${pageData.keywords && pageData.keywords.length > 0 ? 
-                                    pageData.keywords.map(keyword => 
-                                        `<span class="keyword-tag">${keyword}</span>`
-                                    ).join('') : 
-                                    '<div class="no-content">키워드가 없습니다.</div>'
-                                }
-                            </div>
-                        </div>
-                        
-                        <div class="section">
-                            <div class="section-title">📄 페이지 내용</div>
-                            <div class="content-text">${pageData.content || '페이지 내용이 없습니다.'}</div>
-                        </div>
-                    </div>
-                </div>
-            </body>
-            </html>
-        `;
-        
-        newWindow.document.write(content);
-        newWindow.document.close();
-        newWindow.focus();
-        
-        console.log('✅ 페이지 모달 표시 완료');
-        
-    } catch (error) {
-        console.error('❌ 페이지 내용 로드 오류:', error);
-        alert(`페이지 내용을 불러오는 중 오류가 발생했습니다: ${error.message}`);
-    }
-};
 
 // DOM 로드 시 초기화
 document.addEventListener('DOMContentLoaded', () => {
@@ -863,6 +941,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const keywordMindmapBtn = document.getElementById('goToKeywordMindmap');
         const allMindmapBtn = document.getElementById('goToAllMindmap');
         
+        
         // 1. 키워드 모드 처리 (최우선)
         if (mode === 'keyword' && keyword) {
             console.log('🎯 키워드 모드 감지, 로드 시작');
@@ -878,6 +957,14 @@ document.addEventListener('DOMContentLoaded', () => {
             if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
             if (allMindmapBtn) allMindmapBtn.style.display = 'none';
             loadAllMindmap();
+        } 
+        // 2-1. 전체 키워드 네트워크 모드 처리
+        else if (mode === 'all_keywords') {
+            console.log('🏷️ 전체 키워드 네트워크 모드 감지, 로드 시작');
+            // 키워드 네트워크 모드에서는 전체 마인드맵 버튼 표시
+            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'none';
+            if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
+            loadAllKeywordsMindmap();
         } 
         // 3. 특정 페이지 모드 처리 (parent_id가 있는 경우)
         else if (parentId) {
@@ -901,5 +988,81 @@ document.addEventListener('DOMContentLoaded', () => {
         showMessage(`초기화 실패: ${error.message}`);
     }
 });
+
+// 모달 외부 클릭 시 닫기
+window.onclick = function(event) {
+    const modal = document.getElementById('pageContentModal');
+    if (event.target === modal) {
+        closeModal();
+    }
+}
+
+// ESC 키로 모달 닫기
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+        const modal = document.getElementById('pageContentModal');
+        if (modal && modal.style.display === 'block') {
+            closeModal();
+        }
+    }
+});
+
+// 요약 선택기 생성 함수
+function createSummarySelector(pageData) {
+    const hasChunkBasedSummary = pageData.chunk_based_summary && pageData.chunk_based_summary !== pageData.summary;
+    
+    if (!hasChunkBasedSummary) {
+        return ''; // 두 요약이 같거나 chunk 기반 요약이 없으면 선택기 숨김
+    }
+    
+    return `
+        <div style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+            <div id="modal-summary-tab-standard" onclick="switchModalSummary('standard')" 
+                 style="padding: 6px 12px; border: 1px solid #ddd; background: #3498db; color: white; border-radius: 4px; cursor: pointer; font-size: 14px; transition: all 0.3s;">
+                일반 요약
+            </div>
+            <div id="modal-summary-tab-chunk" onclick="switchModalSummary('chunk')" 
+                 style="padding: 6px 12px; border: 1px solid #ddd; background: #f8f9fa; border-radius: 4px; cursor: pointer; font-size: 14px; transition: all 0.3s;">
+                RAG 요약
+            </div>
+        </div>
+    `;
+}
+
+// 모달에서 요약 전환 함수
+function switchModalSummary(summaryType) {
+    const standardTab = document.getElementById('modal-summary-tab-standard');
+    const chunkTab = document.getElementById('modal-summary-tab-chunk');
+    const summaryContent = document.getElementById('modal-summary-content');
+    
+    if (!standardTab || !chunkTab || !summaryContent) return;
+    
+    // 현재 모달에 표시된 페이지 데이터 가져오기 (전역 변수 또는 DOM에서)
+    const currentPageData = getCurrentPageData();
+    if (!currentPageData) return;
+    
+    // 탭 상태 업데이트
+    if (summaryType === 'standard') {
+        standardTab.style.background = '#3498db';
+        standardTab.style.color = 'white';
+        chunkTab.style.background = '#f8f9fa';
+        chunkTab.style.color = '#495057';
+        summaryContent.textContent = currentPageData.summary || '요약 정보가 없습니다.';
+    } else if (summaryType === 'chunk') {
+        chunkTab.style.background = '#3498db';
+        chunkTab.style.color = 'white';
+        standardTab.style.background = '#f8f9fa';
+        standardTab.style.color = '#495057';
+        summaryContent.textContent = currentPageData.chunk_based_summary || '요약 정보가 없습니다.';
+    }
+}
+
+// 현재 페이지 데이터를 저장하기 위한 전역 변수
+let currentModalPageData = null;
+
+// getCurrentPageData 함수 구현
+function getCurrentPageData() {
+    return currentModalPageData;
+}
 
 console.log('🔗 mindmap_simple.js 로드 완료');

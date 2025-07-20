@@ -5,6 +5,57 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>데이터 조회 - Confluence Auto-Summarization</title>
     <link rel="stylesheet" href="/static/style.css">
+    <script>
+        // 전체 마인드맵 처리 함수
+        async function handleAllMindmap() {
+            console.log('🚀 handleAllMindmap 함수 호출됨');
+            
+            try {
+                const response = await fetch('/pages/stats');
+                const stats = await response.json();
+                
+                if (stats.total_pages === 0) {
+                    alert('저장된 페이지가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
+                    return;
+                }
+                
+                console.log('전체 마인드맵 페이지로 이동');
+                window.open('/mindmap?mode=all', '_blank');
+                
+            } catch (error) {
+                console.error('전체 마인드맵 오류:', error);
+                alert('전체 마인드맵을 불러오는 중 오류가 발생했습니다.');
+            }
+        }
+        
+        // 키워드 마인드맵 처리 함수
+        async function handleKeywordMindmap() {
+            console.log('🚀 handleKeywordMindmap 함수 호출됨');
+            
+            try {
+                const response = await fetch('/pages/stats');
+                const stats = await response.json();
+                
+                if (stats.total_pages === 0) {
+                    alert('저장된 페이지가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
+                    return;
+                }
+                
+                if (stats.total_unique_keywords === 0) {
+                    alert('저장된 키워드가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
+                    return;
+                }
+                
+                // 전체 키워드 네트워크 마인드맵으로 이동
+                console.log('전체 키워드 네트워크 마인드맵으로 이동');
+                window.open('/mindmap?mode=all_keywords', '_blank');
+                
+            } catch (error) {
+                console.error('키워드 마인드맵 오류:', error);
+                alert('키워드 마인드맵을 불러오는 중 오류가 발생했습니다.');
+            }
+        }
+    </script>
     <style>
         .data-container {
             display: grid;
@@ -25,6 +76,8 @@
             border-radius: 10px;
             padding: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow-x: hidden;
+            word-wrap: break-word;
         }
         
         .page-item {
@@ -33,6 +86,10 @@
             padding: 15px;
             margin-bottom: 15px;
             transition: background-color 0.3s;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            max-width: 100%;
+            box-sizing: border-box;
         }
         
         .page-item:hover {
@@ -44,12 +101,52 @@
             font-weight: bold;
             color: #2c3e50;
             margin-bottom: 5px;
+            word-wrap: break-word;
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+        
+        .summary-container {
+            margin-bottom: 15px;
+        }
+        
+        .summary-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .summary-tab {
+            padding: 6px 12px;
+            border: 1px solid #ddd;
+            background: #f8f9fa;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.3s;
+        }
+        
+        .summary-tab.active {
+            background: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+        
+        .summary-tab:hover:not(.active) {
+            background: #e9ecef;
         }
         
         .page-summary {
             color: #7f8c8d;
             margin-bottom: 10px;
             line-height: 1.4;
+            word-wrap: break-word;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            max-width: 100%;
+            white-space: pre-wrap;
+            min-height: 40px;
         }
         
         .page-keywords {
@@ -69,6 +166,9 @@
         .page-meta {
             font-size: 0.9em;
             color: #95a5a6;
+            word-wrap: break-word;
+            word-break: break-word;
+            overflow-wrap: break-word;
         }
         
         .pagination {
@@ -139,62 +239,46 @@
             }
         }
         
-        /* 모달 스타일 - 마인드맵과 동일한 스타일 적용 */
+        /* 모달 스타일 - 마인드맵과 완전히 동일 */
         .modal {
             display: none;
             position: fixed;
-            z-index: 9999;
+            z-index: 1000;
             left: 0;
             top: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
+            background-color: rgba(0, 0, 0, 0.6);
         }
         
         .modal-content {
-            background: white;
+            background-color: white;
             margin: 2% auto;
-            padding: 0;
-            border: none;
             border-radius: 8px;
-            width: 85%;
-            max-width: 900px;
-            max-height: 90vh;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            width: 95%;
+            max-width: 1200px;
+            max-height: 95vh;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
             display: flex;
             flex-direction: column;
-            overflow: hidden;
         }
         
         .modal-header {
-            background: #2c3e50; 
-            color: white; 
-            padding: 20px; 
-            margin-bottom: 0;
+            background: #2c3e50;
+            color: white;
+            padding: 15px 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            position: relative;
         }
         
-        .modal-title {
-            margin: 0 0 10px 0; 
-            font-size: 1.8em; 
+        .modal-header h3 {
+            margin: 0;
+            font-size: 1.5em;
             font-weight: 600;
-        }
-        
-        .modal-meta-info {
-            opacity: 0.8; 
-            font-size: 0.9em;
-            margin-top: 10px;
-        }
-        
-        .modal-meta-info a { 
-            color: #3498db; 
-            text-decoration: none; 
-        }
-        
-        .modal-meta-info a:hover { 
-            text-decoration: underline; 
+            flex: 1;
         }
         
         .close {
@@ -202,89 +286,34 @@
             font-size: 28px;
             font-weight: bold;
             cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+            background: none;
+            border: none;
+            padding: 0;
             line-height: 1;
-            opacity: 0.8;
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
         }
         
         .close:hover,
         .close:focus {
             opacity: 1;
-            text-decoration: none;
-        }
-        
-        .modal-header .btn {
-            padding: 6px 12px;
-            font-size: 0.85em;
-            border-radius: 4px;
-            margin-right: 10px;
-        }
-        
-        .modal-header .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
+            outline: none;
         }
         
         .modal-body {
             padding: 20px;
             overflow-y: auto;
             flex: 1;
-            line-height: 1.6;
         }
         
-        .modal-section { 
-            margin: 25px 0; 
-        }
-        
-        .modal-section-title { 
-            color: #2c3e50; 
-            font-weight: 600; 
-            margin-bottom: 15px; 
-            font-size: 1.1em;
-            border-bottom: 2px solid #ecf0f1;
-            padding-bottom: 8px;
-        }
-        
-        .modal-summary { 
-            background: #e8f6ff; 
-            padding: 20px; 
-            border-radius: 6px; 
-            border-left: 4px solid #3498db; 
-            font-style: italic;
-        }
-        
-        .modal-keywords-container {
-            min-height: 50px;
-        }
-        
-        .modal-keywords-container .keyword-tag { 
-            display: inline-block; 
-            background: #3498db; 
-            color: white; 
-            padding: 4px 12px; 
-            margin: 3px; 
-            border-radius: 20px; 
-            font-size: 0.85em; 
-            font-weight: 500;
-        }
-        
-        .modal-content-text { 
-            background: #f8f9fa; 
-            padding: 20px; 
-            border-radius: 6px; 
-            white-space: pre-wrap; 
-            max-height: 400px; 
-            overflow-y: auto; 
-            border: 1px solid #e9ecef;
-            font-family: 'Courier New', monospace;
-            font-size: 0.9em;
-            line-height: 1.5;
-        }
-        
-        .no-content {
-            color: #7f8c8d;
-            font-style: italic;
-            text-align: center;
-            padding: 20px;
+        /* 로딩 애니메이션 */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
         }
         
         .page-item {
@@ -304,7 +333,9 @@
             <p>저장된 Confluence 페이지 데이터를 조회하고 검색할 수 있습니다</p>
             <nav style="margin-top: 15px;">
                 <a href="/" class="btn btn-secondary">메인으로</a>
-                <button id="goToMindmap" class="btn btn-info">마인드맵</button>
+                <button id="viewAllMindmap" class="btn btn-info" onclick="handleAllMindmap()">타이틀 마인드맵</button>
+                <button id="viewKeywordMindmap" class="btn btn-success" onclick="handleKeywordMindmap()">키워드 마인드맵</button>
+                <a href="/user-mindmap" class="btn btn-warning">사용자별 마인드맵</a>
             </nav>
         </header>
         
@@ -355,7 +386,32 @@
             <div class="results-panel">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                     <h3 id="resultsTitle">검색 결과</h3>
-                    <div id="resultsInfo"></div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <div id="resultsInfo"></div>
+                        <button id="downloadCSV" class="btn btn-success" style="display: none;">CSV 다운로드</button>
+                        <button id="downloadJSON" class="btn btn-info" style="display: none;">JSON 다운로드</button>
+                    </div>
+                </div>
+                
+                <!-- 일괄 작업 컨트롤 -->
+                <div id="bulkActionsPanel" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #007bff;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <label style="display: flex; align-items: center; gap: 5px; font-weight: bold;">
+                                <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                                전체 선택
+                            </label>
+                            <span id="selectedCount" style="color: #666;">0개 선택됨</span>
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button id="bulkRegenerate" class="btn btn-warning" onclick="bulkRegenerate()" disabled>
+                                선택된 페이지 재생성
+                            </button>
+                            <button id="bulkDelete" class="btn btn-danger" onclick="bulkDelete()" disabled>
+                                선택된 페이지 삭제
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 
                 <div id="resultsContainer">
@@ -371,34 +427,11 @@
     <div id="pageContentModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <div>
-                    <h2 class="modal-title" id="modalTitle">페이지 내용</h2>
-                    <div class="modal-meta-info" id="modalMetaInfo">
-                        📋 페이지 ID: <span id="modalPageId"></span> | 
-                        📅 수정일: <span id="modalModifiedDate"></span> | 
-                        <a id="modalUrl" href="#" target="_blank">🔗 원본 페이지 보기</a>
-                    </div>
-                </div>
-                <div>
-                    <button id="regenerateBtn" class="btn btn-success">재생성</button>
-                    <span class="close" id="closeModal">&times;</span>
-                </div>
+                <h3 id="modalTitle">페이지 제목</h3>
+                <span class="close" onclick="hideModal()">&times;</span>
             </div>
             <div class="modal-body">
-                <div class="modal-section">
-                    <div class="modal-section-title">📝 요약</div>
-                    <div id="modalSummary" class="modal-summary"></div>
-                </div>
-                
-                <div class="modal-section">
-                    <div class="modal-section-title">🏷️ 키워드</div>
-                    <div id="modalKeywords" class="modal-keywords-container"></div>
-                </div>
-                
-                <div class="modal-section">
-                    <div class="modal-section-title">📄 페이지 내용</div>
-                    <div id="modalContent" class="modal-content-text"></div>
-                </div>
+                <div id="modalContent">페이지 내용을 불러오는 중...</div>
             </div>
         </div>
     </div>

@@ -1,9 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Dict
 import logging
 import json
 import re
 from config import config
+from rag_chunking import HierarchicalChunker, RAGChunk
+from models import PersonExtractionResult, ExtractedPerson
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,116 @@ class LLMService(ABC):
     @abstractmethod
     def extract_keywords(self, content: str) -> List[str]:
         pass
+    
+    @abstractmethod
+    def extract_persons(self, content: str, page_title: str = "") -> PersonExtractionResult:
+        """Confluence 문서에서 인물 정보 추출"""
+        pass
+    
+    def chunk_based_summarize(self, content: str, page_title: str = "", use_chunking: bool = None) -> str:
+        """RAG 최적화된 chunking 기반 요약 생성"""
+        if use_chunking is None:
+            use_chunking = config.RAG_ENABLED
+        
+        if not use_chunking or len(content) <= config.RAG_CHUNK_SIZE:
+            # 짧은 콘텐츠거나 chunking 비활성화시 기본 요약 사용
+            return self.summarize(content)
+        
+        try:
+            # HierarchicalChunker 초기화
+            chunker = HierarchicalChunker(
+                chunk_size=config.RAG_CHUNK_SIZE,
+                max_chunk_size=config.RAG_MAX_CHUNK_SIZE,
+                overlap_tokens=config.RAG_OVERLAP_TOKENS
+            )
+            
+            # 콘텐츠를 최적화된 chunk로 분할
+            chunks = chunker.chunk_content(content, page_title)
+            
+            if not chunks:
+                logger.warning("Chunking 결과가 비어있음, 기본 요약 사용")
+                return self.summarize(content)
+            
+            logger.info(f"RAG chunking 완료: {len(chunks)}개 chunk 생성")
+            
+            # 각 chunk를 개별 요약 후 전체 요약 생성
+            chunk_summaries = []
+            for i, chunk in enumerate(chunks[:5]):  # 최대 5개 chunk만 처리 (토큰 제한)
+                try:
+                    chunk_summary = self.summarize(chunk.content)
+                    if chunk_summary and len(chunk_summary.strip()) > 10:
+                        chunk_summaries.append(f"[{chunk.chunk_type.value}] {chunk_summary}")
+                except Exception as e:
+                    logger.warning(f"Chunk {i} 요약 실패: {str(e)}")
+                    continue
+            
+            if not chunk_summaries:
+                logger.warning("모든 chunk 요약 실패, 기본 요약 사용")
+                return self.summarize(content[:4000])
+            
+            # chunk 요약들을 종합하여 최종 요약 생성
+            combined_summary = " ".join(chunk_summaries)
+            
+            if len(combined_summary) > 1000:
+                # 너무 길면 다시 요약
+                final_prompt = f"다음 내용들을 종합하여 간결한 요약을 생성해주세요:\n\n{combined_summary}"
+                final_summary = self.summarize(final_prompt)
+                return final_summary if final_summary else combined_summary[:500] + "..."
+            
+            return combined_summary
+            
+        except Exception as e:
+            logger.error(f"RAG chunking 요약 실패, 기본 요약 사용: {str(e)}")
+            return self.summarize(content)
+    
+    def chunk_based_extract_keywords(self, content: str, page_title: str = "", use_chunking: bool = None) -> List[str]:
+        """RAG 최적화된 chunking 기반 키워드 추출"""
+        if use_chunking is None:
+            use_chunking = config.RAG_ENABLED
+        
+        if not use_chunking or len(content) <= config.RAG_CHUNK_SIZE:
+            # 짧은 콘텐츠거나 chunking 비활성화시 기본 키워드 추출
+            return self.extract_keywords(content)
+        
+        try:
+            # HierarchicalChunker 초기화
+            chunker = HierarchicalChunker(
+                chunk_size=config.RAG_CHUNK_SIZE,
+                max_chunk_size=config.RAG_MAX_CHUNK_SIZE,
+                overlap_tokens=config.RAG_OVERLAP_TOKENS
+            )
+            
+            # 콘텐츠를 최적화된 chunk로 분할
+            chunks = chunker.chunk_content(content, page_title)
+            
+            if not chunks:
+                logger.warning("Chunking 결과가 비어있음, 기본 키워드 추출 사용")
+                return self.extract_keywords(content)
+            
+            # 각 chunk에서 키워드 추출
+            all_keywords = []
+            for chunk in chunks[:3]:  # 최대 3개 chunk만 처리
+                try:
+                    chunk_keywords = self.extract_keywords(chunk.content)
+                    all_keywords.extend(chunk_keywords)
+                except Exception as e:
+                    logger.warning(f"Chunk 키워드 추출 실패: {str(e)}")
+                    continue
+            
+            if not all_keywords:
+                logger.warning("모든 chunk 키워드 추출 실패, 기본 키워드 추출 사용")
+                return self.extract_keywords(content[:4000])
+            
+            # 중복 제거 및 빈도순 정렬
+            from collections import Counter
+            keyword_freq = Counter(all_keywords)
+            unique_keywords = [kw for kw, freq in keyword_freq.most_common(20)]
+            
+            return unique_keywords[:10]  # 최대 10개 반환
+            
+        except Exception as e:
+            logger.error(f"RAG chunking 키워드 추출 실패, 기본 키워드 추출 사용: {str(e)}")
+            return self.extract_keywords(content)
 
 class OllamaService(LLMService):
     def __init__(self, base_url: str = None, model_name: str = None):
@@ -95,6 +207,111 @@ class OllamaService(LLMService):
         except Exception as e:
             logger.error(f"키워드 추출 오류: {str(e)}")
             return []
+    
+    def extract_persons(self, content: str, page_title: str = "") -> PersonExtractionResult:
+        """Confluence 문서에서 인물 정보 추출"""
+        try:
+            # 정규표현식으로 후보 이름 패턴 찾기
+            potential_names = self._extract_name_candidates(content)
+            
+            # LLM으로 인물 정보 추출 및 검증
+            person_prompt = self._create_person_extraction_prompt(content, page_title, potential_names)
+            response = self._call_ollama(person_prompt)
+            
+            # JSON 응답 파싱
+            try:
+                parsed_data = json.loads(response)
+                persons = []
+                
+                for person_data in parsed_data.get('persons', []):
+                    person = ExtractedPerson(
+                        name=person_data.get('name', ''),
+                        department=person_data.get('department'),
+                        role=person_data.get('role'),
+                        email=person_data.get('email'),
+                        mentioned_context=person_data.get('mentioned_context'),
+                        confidence=person_data.get('confidence', 0.0)
+                    )
+                    if person.name and person.confidence > 0.3:  # 최소 신뢰도 필터
+                        persons.append(person)
+                
+                return PersonExtractionResult(persons=persons)
+                
+            except json.JSONDecodeError:
+                logger.warning(f"LLM 응답 JSON 파싱 실패: {response}")
+                return PersonExtractionResult(persons=[])
+                
+        except Exception as e:
+            logger.error(f"인물 정보 추출 오류: {str(e)}")
+            return PersonExtractionResult(persons=[])
+    
+    def _extract_name_candidates(self, content: str) -> List[str]:
+        """정규표현식으로 후보 이름 패턴 추출"""
+        candidates = set()
+        
+        # 한글 이름 패턴 (2-4글자)
+        korean_name_pattern = r'[가-힣]{2,4}(?=\s|님|씨|[,.]|$)'
+        korean_names = re.findall(korean_name_pattern, content)
+        candidates.update(korean_names)
+        
+        # 이메일에서 이름 추출
+        email_pattern = r'([a-zA-Z가-힣]+)@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        email_matches = re.findall(email_pattern, content)
+        candidates.update(email_matches)
+        
+        # 영문 이름 패턴 (FirstName LastName)
+        english_name_pattern = r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b'
+        english_names = re.findall(english_name_pattern, content)
+        candidates.update([name.strip() for name in english_names])
+        
+        # 일반적이지 않은 단어들 필터링
+        filtered_candidates = []
+        for candidate in candidates:
+            if (len(candidate) >= 2 and 
+                candidate not in ['개발', '관리', '프로젝트', '문서', '페이지', '시스템'] and
+                not candidate.isdigit()):
+                filtered_candidates.append(candidate)
+        
+        return filtered_candidates[:20]  # 최대 20개로 제한
+    
+    def _create_person_extraction_prompt(self, content: str, page_title: str, candidates: List[str]) -> str:
+        """인물 추출용 프롬프트 생성"""
+        prompt = f"""다음 Confluence 문서에서 언급된 실제 인물들의 정보를 JSON 형식으로 추출해주세요.
+
+문서 제목: {page_title}
+
+문서 내용:
+{content[:3000]}
+
+후보 인물명: {', '.join(candidates)}
+
+다음 조건을 만족하는 실제 인물만 추출해주세요:
+1. 실명으로 언급된 사람 (가명이나 역할명 제외)
+2. 구체적인 맥락이 있는 경우
+3. 조직 내 구성원으로 보이는 경우
+
+추출할 정보:
+- name: 인물 이름 (필수)
+- department: 부서/팀 정보 (있는 경우)
+- role: 역할/직책 (있는 경우)
+- email: 이메일 주소 (있는 경우)
+- mentioned_context: 언급된 구체적 문맥 (50자 이내)
+- confidence: 신뢰도 (0.0-1.0, 확실한 경우 0.8 이상)
+
+JSON 형식으로만 응답해주세요:
+{{
+  "persons": [
+    {{
+      "name": "홍길동",
+      "department": "개발팀",
+      "role": "팀장",
+      "email": "hong@company.com",
+      "mentioned_context": "프로젝트 승인 담당",
+      "confidence": 0.95
+    }}
+  ]
+}}"""
+        return prompt
 
 class OpenAIService(LLMService):
     def __init__(self, api_key: str = None, model_name: str = None):
@@ -138,6 +355,111 @@ class OpenAIService(LLMService):
         except Exception as e:
             logger.error(f"OpenAI 키워드 추출 오류: {str(e)}")
             return []
+    
+    def extract_persons(self, content: str, page_title: str = "") -> PersonExtractionResult:
+        """Confluence 문서에서 인물 정보 추출"""
+        try:
+            # 정규표현식으로 후보 이름 패턴 찾기  
+            potential_names = self._extract_name_candidates(content)
+            
+            # LLM으로 인물 정보 추출 및 검증
+            person_prompt = self._create_person_extraction_prompt(content, page_title, potential_names)
+            response = self.client.invoke(person_prompt)
+            
+            # JSON 응답 파싱
+            try:
+                parsed_data = json.loads(response.content)
+                persons = []
+                
+                for person_data in parsed_data.get('persons', []):
+                    person = ExtractedPerson(
+                        name=person_data.get('name', ''),
+                        department=person_data.get('department'),
+                        role=person_data.get('role'),
+                        email=person_data.get('email'),
+                        mentioned_context=person_data.get('mentioned_context'),
+                        confidence=person_data.get('confidence', 0.0)
+                    )
+                    if person.name and person.confidence > 0.3:  # 최소 신뢰도 필터
+                        persons.append(person)
+                
+                return PersonExtractionResult(persons=persons)
+                
+            except json.JSONDecodeError:
+                logger.warning(f"LLM 응답 JSON 파싱 실패: {response.content}")
+                return PersonExtractionResult(persons=[])
+                
+        except Exception as e:
+            logger.error(f"인물 정보 추출 오류: {str(e)}")
+            return PersonExtractionResult(persons=[])
+    
+    def _extract_name_candidates(self, content: str) -> List[str]:
+        """정규표현식으로 후보 이름 패턴 추출"""
+        candidates = set()
+        
+        # 한글 이름 패턴 (2-4글자)
+        korean_name_pattern = r'[가-힣]{2,4}(?=\s|님|씨|[,.]|$)'
+        korean_names = re.findall(korean_name_pattern, content)
+        candidates.update(korean_names)
+        
+        # 이메일에서 이름 추출
+        email_pattern = r'([a-zA-Z가-힣]+)@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        email_matches = re.findall(email_pattern, content)
+        candidates.update(email_matches)
+        
+        # 영문 이름 패턴 (FirstName LastName)
+        english_name_pattern = r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b'
+        english_names = re.findall(english_name_pattern, content)
+        candidates.update([name.strip() for name in english_names])
+        
+        # 일반적이지 않은 단어들 필터링
+        filtered_candidates = []
+        for candidate in candidates:
+            if (len(candidate) >= 2 and 
+                candidate not in ['개발', '관리', '프로젝트', '문서', '페이지', '시스템'] and
+                not candidate.isdigit()):
+                filtered_candidates.append(candidate)
+        
+        return filtered_candidates[:20]  # 최대 20개로 제한
+    
+    def _create_person_extraction_prompt(self, content: str, page_title: str, candidates: List[str]) -> str:
+        """인물 추출용 프롬프트 생성"""
+        prompt = f"""다음 Confluence 문서에서 언급된 실제 인물들의 정보를 JSON 형식으로 추출해주세요.
+
+문서 제목: {page_title}
+
+문서 내용:
+{content[:3000]}
+
+후보 인물명: {', '.join(candidates)}
+
+다음 조건을 만족하는 실제 인물만 추출해주세요:
+1. 실명으로 언급된 사람 (가명이나 역할명 제외)
+2. 구체적인 맥락이 있는 경우
+3. 조직 내 구성원으로 보이는 경우
+
+추출할 정보:
+- name: 인물 이름 (필수)
+- department: 부서/팀 정보 (있는 경우)
+- role: 역할/직책 (있는 경우)
+- email: 이메일 주소 (있는 경우)
+- mentioned_context: 언급된 구체적 문맥 (50자 이내)
+- confidence: 신뢰도 (0.0-1.0, 확실한 경우 0.8 이상)
+
+JSON 형식으로만 응답해주세요:
+{{
+  "persons": [
+    {{
+      "name": "홍길동",
+      "department": "개발팀",
+      "role": "팀장",
+      "email": "hong@company.com",
+      "mentioned_context": "프로젝트 승인 담당",
+      "confidence": 0.95
+    }}
+  ]
+}}"""
+        return prompt
 
 class LLMServiceFactory:
     @staticmethod

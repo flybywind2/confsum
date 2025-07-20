@@ -15,10 +15,13 @@ class Page(Base):
     title = Column(String, nullable=False)
     content = Column(Text)
     summary = Column(Text)
+    chunk_based_summary = Column(Text)  # RAG chunking 기반 요약
     keywords = Column(Text)  # JSON string
     url = Column(String)
     modified_date = Column(String)
     created_date = Column(String)
+    created_by = Column(String)  # 생성자
+    modified_by = Column(String)  # 최종 수정자
     
     @property
     def keywords_list(self) -> List[str]:
@@ -45,6 +48,33 @@ class PageRelationship(Base):
     @common_keywords_list.setter
     def common_keywords_list(self, value: List[str]):
         self.common_keywords = json.dumps(value, ensure_ascii=False)
+
+class Person(Base):
+    __tablename__ = 'persons'
+    
+    person_id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    email = Column(String)
+    department = Column(String)
+    role = Column(String)
+    mentioned_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class PersonPageRelation(Base):
+    __tablename__ = 'person_page_relations'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    person_id = Column(Integer, ForeignKey('persons.person_id'))
+    page_id = Column(String, ForeignKey('pages.page_id'))
+    relation_type = Column(String, nullable=False)  # creator, modifier, mentioned
+    confidence_score = Column(Float, default=1.0)
+    mentioned_context = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # 관계 설정
+    person = relationship("Person")
+    page = relationship("Page")
 
 # Pydantic 모델 (API 응답용)
 class ConfluenceConnection(BaseModel):
@@ -76,8 +106,13 @@ class PageSummary(BaseModel):
     page_id: str
     title: str
     summary: str
+    chunk_based_summary: Optional[str] = None
     keywords: List[str]
     url: str
+    created_date: Optional[str] = None
+    modified_date: Optional[str] = None
+    created_by: Optional[str] = None
+    modified_by: Optional[str] = None
 
 class MindmapNode(BaseModel):
     id: str
@@ -109,3 +144,60 @@ class PageSearchRequest(BaseModel):
     keywords: Optional[List[str]] = None
     page: int = 1
     per_page: int = 20
+
+# 인물 관련 Pydantic 모델들
+class PersonInfo(BaseModel):
+    person_id: int
+    name: str
+    email: Optional[str] = None
+    department: Optional[str] = None
+    role: Optional[str] = None
+    mentioned_count: int = 0
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+class PersonPageRelationInfo(BaseModel):
+    id: int
+    person_id: int
+    page_id: str
+    relation_type: str
+    confidence_score: float
+    mentioned_context: Optional[str] = None
+    created_at: Optional[str] = None
+
+class ExtractedPerson(BaseModel):
+    name: str
+    department: Optional[str] = None
+    role: Optional[str] = None
+    email: Optional[str] = None
+    mentioned_context: Optional[str] = None
+    confidence: float = 0.0
+
+class PersonExtractionResult(BaseModel):
+    persons: List[ExtractedPerson]
+
+class UserMindmapNode(BaseModel):
+    id: str
+    title: str
+    relation_to_user: str  # creator, modifier, mentioned
+    user_context: Optional[str] = None
+    keywords: List[str]
+    url: str
+    summary: str
+    size: int
+
+class UserMindmapData(BaseModel):
+    center_user: str
+    relation_types: List[str]
+    nodes: List[UserMindmapNode]
+    links: List[MindmapLink]
+
+class UserStats(BaseModel):
+    name: str
+    email: Optional[str] = None
+    department: Optional[str] = None
+    role: Optional[str] = None
+    created_pages: int = 0
+    modified_pages: int = 0
+    mentioned_pages: int = 0
+    total_relations: int = 0

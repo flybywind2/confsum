@@ -22,6 +22,14 @@ class Config:
     MINDMAP_THRESHOLD = float(os.getenv("MINDMAP_THRESHOLD", "0.3"))
     MINDMAP_MAX_DEPTH = int(os.getenv("MINDMAP_MAX_DEPTH", "3"))
     
+    # RAG 청킹 설정
+    RAG_ENABLED = os.getenv("RAG_ENABLED", "true").lower() == "true"
+    RAG_CHUNK_SIZE = int(os.getenv("RAG_CHUNK_SIZE", "512"))          # 목표 청크 크기 (토큰)
+    RAG_MAX_CHUNK_SIZE = int(os.getenv("RAG_MAX_CHUNK_SIZE", "1024"))  # 최대 청크 크기 (토큰)
+    RAG_OVERLAP_TOKENS = int(os.getenv("RAG_OVERLAP_TOKENS", "50"))    # 오버랩 토큰 수
+    RAG_DEFAULT_STRATEGY = os.getenv("RAG_DEFAULT_STRATEGY", "hierarchical")  # 기본 청킹 전략
+    RAG_PRESERVE_STRUCTURE = os.getenv("RAG_PRESERVE_STRUCTURE", "true").lower() == "true"
+    
     # 프롬프트 설정
     SUMMARY_PROMPT = """
     다음 Confluence 페이지 내용을 한국어로 요약해주세요. 요약은 3-5문장으로 작성하고, 핵심 내용을 포함해야 합니다.
@@ -33,8 +41,8 @@ class Config:
     """
     
     KEYWORDS_PROMPT = """
-    다음 Confluence 페이지 내용에서 주요 키워드를 추출해주세요. 키워드는 5-10개로 제한하고, 쉼표로 구분해주세요.
-    
+    다음 Confluence 페이지 내용에서 주요 키워드를 추출해주세요. 키워드는 5-10개로 제한하고, 조사는 포함하지 않고 쉼표로 구분해주세요.
+
     페이지 내용:
     {content}
     

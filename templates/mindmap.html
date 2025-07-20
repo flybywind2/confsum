@@ -56,6 +56,82 @@
         .controls input, .controls select {
             margin-right: 20px;
         }
+        
+        /* 모달 스타일 */
+        .modal {
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            backdrop-filter: blur(3px);
+        }
+        
+        .modal-content {
+            background-color: #fefefe;
+            margin: 2% auto;
+            padding: 0;
+            border: none;
+            width: 95%;
+            max-width: 1200px;
+            max-height: 95vh;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        
+        .modal-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: relative;
+        }
+        
+        .modal-header h3 {
+            margin: 0;
+            font-size: 1.4em;
+            flex: 1;
+        }
+        
+        .close {
+            color: white;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+            background: none;
+            border: none;
+            padding: 0;
+            opacity: 0.7;
+            transition: opacity 0.3s;
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+        
+        .close:hover,
+        .close:focus {
+            opacity: 1;
+            outline: none;
+        }
+        
+        .modal-body {
+            padding: 20px;
+            max-height: calc(85vh - 80px);
+            overflow-y: auto;
+        }
+        
+        /* 로딩 스피너 애니메이션 */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -69,6 +145,7 @@
                 <button id="goToKeywordMindmap" class="btn btn-success">키워드 마인드맵</button>
                 <button id="goToAllMindmap" class="btn btn-warning" style="display: none;">전체 마인드맵</button>
                 <button id="toggleMode" class="btn btn-primary" style="display: none;">모드 전환</button>
+                <a href="/user-mindmap" class="btn btn-warning">사용자별 마인드맵</a>
             </nav>
         </header>
         
@@ -93,6 +170,21 @@
             <h3>선택된 페이지 정보</h3>
             <div id="selectedPageInfo">
                 <p>노드를 클릭하면 페이지 정보가 표시됩니다.</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 페이지 내용 모달 -->
+    <div id="pageContentModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">페이지 제목</h3>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="modalContent">
+                    <p>페이지 내용을 불러오는 중...</p>
+                </div>
             </div>
         </div>
     </div>

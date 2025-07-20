@@ -1,14 +1,38 @@
+// localStorage 기본 기능 테스트
+console.log('🧪 localStorage 테스트 시작');
+try {
+    localStorage.setItem('test', 'working');
+    const testValue = localStorage.getItem('test');
+    console.log('✅ localStorage 작동:', testValue);
+    localStorage.removeItem('test');
+} catch (e) {
+    console.error('❌ localStorage 오류:', e);
+}
+
 class ConfluenceController {
     constructor() {
+        console.log('🚀 ConfluenceController 생성자 시작');
         this.connectionStatus = false;
         this.currentTaskId = null;
         this.statusCheckInterval = null;
-        this.init();
+        console.log('🔥 init() 메서드 호출 직전');
+        try {
+            this.init();
+            console.log('✅ init() 메서드 호출 완료');
+        } catch (error) {
+            console.error('❌ init() 메서드 호출 중 오류:', error);
+        }
+        console.log('✅ ConfluenceController 생성자 완료');
     }
     
     init() {
+        console.log('🚀 ConfluenceController.init() 시작');
         this.bindEvents();
+        console.log('🔥 loadSavedConnection 호출 직전');
+        this.loadSavedConnection();
+        console.log('🔥 loadSavedConnection 호출 직후');
         this.updateLog("시스템 초기화 완료");
+        console.log('✅ ConfluenceController.init() 완료');
     }
     
     bindEvents() {
@@ -70,13 +94,25 @@ class ConfluenceController {
             
             if (result.status === 'success') {
                 this.updateLog(`연결 성공: ${result.message}`);
+                
+                // localStorage에 연결 정보 저장
+                console.log('🔥 연결 성공 - localStorage 저장 시작');
+                this.saveConnectionToStorage(url, username, password, true);
             } else {
                 this.updateLog(`연결 실패: ${result.message}`);
+                
+                // 연결 실패 시에도 입력 정보는 저장 (연결 상태는 false)
+                console.log('🔥 연결 실패 - localStorage 저장 시작');
+                this.saveConnectionToStorage(url, username, password, false);
             }
             
         } catch (error) {
             this.updateConnectionStatus({status: 'failed', message: `연결 오류: ${error.message}`});
             this.updateLog(`연결 오류: ${error.message}`);
+            
+            // 연결 오류 시에도 입력 정보는 저장 (연결 상태는 false)
+            console.log('🔥 연결 오류 - localStorage 저장 시작');
+            this.saveConnectionToStorage(url, username, password, false);
         } finally {
             testButton.disabled = false;
             testButton.innerHTML = '연결 테스트';
@@ -109,10 +145,23 @@ class ConfluenceController {
         this.showProgressBar();
         
         try {
+            // localStorage에서 연결 정보 가져오기
+            const savedConnection = localStorage.getItem('confluence_connection');
+            let requestBody = {};
+            
+            if (savedConnection) {
+                const connectionInfo = JSON.parse(savedConnection);
+                requestBody = {
+                    confluence_url: connectionInfo.url,
+                    username: connectionInfo.username,
+                    password: connectionInfo.password
+                };
+            }
+            
             const response = await fetch(`/process-pages/${pageId}`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({confluence_url: url, username, password})
+                body: JSON.stringify(requestBody)
             });
             
             const result = await response.json();
@@ -242,7 +291,18 @@ class ConfluenceController {
         statusDiv.style.display = 'block';
         
         this.connectionStatus = result.status === 'success';
-        document.getElementById('processPages').disabled = !this.connectionStatus;
+        
+        // 페이지 처리 버튼 활성화/비활성화
+        const processButton = document.getElementById('processPages');
+        if (processButton) {
+            processButton.disabled = !this.connectionStatus;
+        }
+        
+        // 프로세스 섹션 표시/숨김
+        const processSection = document.getElementById('processSection');
+        if (processSection) {
+            processSection.style.display = this.connectionStatus ? 'block' : 'none';
+        }
     }
     
     showMessage(elementId, message, type) {
@@ -328,38 +388,30 @@ class ConfluenceController {
     }
     
     async viewKeywordMindmap() {
-        console.log('🔥 viewKeywordMindmap 메서드 시작');
-        this.updateLog('키워드 목록 로딩 중...');
+        console.log('🔥 viewKeywordMindmap 메서드 시작 - 전체 키워드 마인드맵으로 변경');
+        this.updateLog('전체 키워드 마인드맵 로딩 중...');
         
         try {
-            // 키워드 목록 조회
-            console.log('🔍 키워드 목록 조회 중...');
-            const response = await fetch('/keywords');
-            console.log('📡 응답 상태:', response.status, response.statusText);
+            // 데이터베이스에 저장된 페이지가 있는지 확인
+            console.log('📊 페이지 통계 조회 중...');
+            const response = await fetch('/pages/stats');
+            const stats = await response.json();
+            console.log('📈 페이지 통계:', stats);
             
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-            
-            const keywords = await response.json();
-            console.log('📝 키워드 목록 조회 완료:', keywords.length, '개');
-            console.log('📋 키워드 샘플:', keywords.slice(0, 5));
-            
-            if (keywords.length === 0) {
-                console.warn('⚠️ 키워드가 없음');
-                alert('저장된 키워드가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
+            if (stats.total_pages === 0) {
+                alert('저장된 페이지가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
                 return;
             }
             
-            // 키워드 선택을 위한 모달 창 생성
-            console.log('🎨 모달 창 생성 시작...');
-            this.showKeywordSelectionModal(keywords);
-            console.log('✅ 모달 창 생성 완료');
+            // 전체 키워드 마인드맵 페이지로 이동 (키워드 네트워크 모드)
+            console.log('🌐 전체 키워드 마인드맵 페이지로 이동 중...');
+            window.open('/mindmap?mode=all_keywords', '_blank');
+            this.updateLog(`전체 키워드 마인드맵 열기 (총 ${stats.total_pages}개 페이지, ${stats.total_unique_keywords}개 키워드)`);
             
         } catch (error) {
-            console.error('❌ 키워드 목록 조회 오류:', error);
-            this.updateLog(`키워드 목록 조회 오류: ${error.message}`);
-            alert(`키워드 목록을 불러오는 중 오류가 발생했습니다: ${error.message}`);
+            console.error('❌ 키워드 마인드맵 오류:', error);
+            this.updateLog(`키워드 마인드맵 오류: ${error.message}`);
+            alert('키워드 마인드맵을 불러오는 중 오류가 발생했습니다.');
         }
     }
     
@@ -461,6 +513,83 @@ class ConfluenceController {
         // 결과 다운로드 기능 구현
         this.updateLog('결과 다운로드 기능은 추후 구현 예정입니다.');
     }
+    
+    // 저장된 연결 정보 로드 (localStorage 사용)
+    loadSavedConnection() {
+        try {
+            console.log('🔍 loadSavedConnection 시작');
+            
+            // localStorage에서 연결 정보 가져오기
+            const savedConnection = localStorage.getItem('confluence_connection');
+            console.log('🔍 localStorage에서 가져온 데이터:', savedConnection);
+            
+            if (savedConnection) {
+                const connectionInfo = JSON.parse(savedConnection);
+                console.log('🔍 파싱된 연결 정보:', connectionInfo);
+                
+                // 폼 필드에 저장된 정보 설정
+                const urlField = document.getElementById('confluenceUrl');
+                const usernameField = document.getElementById('username');
+                
+                if (urlField && connectionInfo.url) {
+                    urlField.value = connectionInfo.url;
+                    console.log('✅ URL 필드 복원:', connectionInfo.url);
+                }
+                if (usernameField && connectionInfo.username) {
+                    usernameField.value = connectionInfo.username;
+                    console.log('✅ 사용자명 필드 복원:', connectionInfo.username);
+                }
+                
+                // 연결 상태가 성공이었던 경우에만 상태 복원
+                if (connectionInfo.connected) {
+                    this.connectionStatus = true;
+                    this.updateConnectionStatus({
+                        status: 'success',
+                        message: '저장된 연결 정보를 불러왔습니다.'
+                    });
+                    
+                    this.updateLog(`저장된 연결 정보 로드: ${connectionInfo.url} (${connectionInfo.username})`);
+                    console.log('✅ 연결 상태 복원 완료');
+                } else {
+                    console.log('⚠️ 저장된 연결은 실패 상태였음');
+                }
+            } else {
+                console.log('⚠️ localStorage에 저장된 연결 정보 없음');
+            }
+        } catch (error) {
+            console.error('❌ 연결 정보 로드 실패:', error);
+            // localStorage 오류 시 정보 삭제
+            localStorage.removeItem('confluence_connection');
+        }
+    }
+    
+    // 연결 정보를 localStorage에 저장
+    saveConnectionToStorage(url, username, password, connected) {
+        try {
+            console.log('🔍 saveConnectionToStorage 메서드 호출됨:', url, username, connected);
+            
+            const connectionInfo = {
+                url: url,
+                username: username,
+                password: password,  // 보안상 주의: 실제 운영환경에서는 패스워드 저장 지양
+                connected: connected,
+                savedAt: new Date().toISOString()
+            };
+            
+            console.log('💾 localStorage에 저장할 데이터:', connectionInfo);
+            localStorage.setItem('confluence_connection', JSON.stringify(connectionInfo));
+            console.log('✅ localStorage 저장 완료');
+            
+            // 저장 확인
+            const savedData = localStorage.getItem('confluence_connection');
+            console.log('🔍 저장된 데이터 확인:', savedData);
+            
+            this.updateLog('연결 정보가 브라우저에 저장되었습니다.');
+        } catch (error) {
+            console.error('❌ 연결 정보 저장 실패:', error);
+            this.updateLog('연결 정보 저장에 실패했습니다.');
+        }
+    }
 }
 
 // 스크립트 로드 확인
@@ -522,10 +651,12 @@ document.addEventListener('DOMContentLoaded', () => {
     console.log('=== DOM 로드됨, ConfluenceController 초기화 시작 ===');
     
     try {
+        console.log('🔥 ConfluenceController 클래스 인스턴스화 시작');
         window.confluenceController = new ConfluenceController();
         console.log('=== ConfluenceController 초기화 완료 ===');
     } catch (error) {
         console.error('❌ ConfluenceController 초기화 실패:', error);
+        console.error('오류 스택:', error.stack);
     }
     
     // 마인드맵 버튼들 직접 이벤트 등록
@@ -545,18 +676,6 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('✅ 전체 마인드맵 버튼 이벤트 등록 완료');
         }
         
-        // 페이지 마인드맵 버튼
-        const viewSpecificBtn = document.getElementById('viewSpecificMindmap');
-        if (viewSpecificBtn) {
-            viewSpecificBtn.addEventListener('click', function(e) {
-                console.log('🚀 페이지 마인드맵 버튼 클릭!');
-                e.preventDefault();
-                if (window.confluenceController) {
-                    window.confluenceController.viewSpecificMindmap();
-                }
-            });
-            console.log('✅ 페이지 마인드맵 버튼 이벤트 등록 완료');
-        }
         
         // 키워드 마인드맵 버튼
         const viewKeywordBtn = document.getElementById('viewKeywordMindmap');

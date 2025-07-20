@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>사용자별 마인드맵 - Confluence Auto-Summarization</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        .user-controls {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .control-group label {
+            font-weight: bold;
+            min-width: 100px;
+        }
+        
+        .control-group select, .control-group input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            min-width: 200px;
+        }
+        
+        .user-stats {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+        }
+        
+        .stat-number {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+        }
+        
+        .mindmap-container {
+            width: 100%;
+            height: 800px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            overflow: hidden;
+            background: white;
+        }
+        
+        .node {
+            stroke-width: 2px;
+            cursor: pointer;
+            fill: #7f8c8d; /* 기본 노드 색상 */
+            stroke: #5d6d7e;
+        }
+        
+        .node-creator {
+            fill: #e74c3c;
+            stroke: #c0392b;
+        }
+        
+        .node-modifier {
+            fill: #f39c12;
+            stroke: #e67e22;
+        }
+        
+        .node-mentioned {
+            fill: #3498db;
+            stroke: #2980b9;
+        }
+        
+        .node-user {
+            fill: #2c3e50;
+            stroke: #34495e;
+        }
+        
+        .node-document {
+            fill: #27ae60;
+            stroke: #229954;
+        }
+        
+        .node-keyword {
+            fill: #8e44ad;
+            stroke: #7d3c98;
+        }
+        
+        .node text {
+            pointer-events: none;
+            text-anchor: middle;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            fill: white;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+            dominant-baseline: middle;
+        }
+        
+        /* 작은 노드의 텍스트는 더 작게 */
+        .node-keyword text {
+            font-size: 10px;
+        }
+        
+        /* 사용자 노드 텍스트는 더 크게 */
+        .node-user text {
+            font-size: 14px;
+            font-weight: 900;
+        }
+        
+        .link {
+            stroke: #666;
+            stroke-opacity: 0.6;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            pointer-events: none;
+            max-width: 300px;
+            z-index: 1000;
+        }
+        
+        .legend {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .error {
+            color: #e74c3c;
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>사용자별 마인드맵</h1>
+            <p>사용자와 연관된 페이지들의 관계를 시각화합니다</p>
+            <nav style="margin-top: 15px;">
+                <a href="/" class="btn btn-secondary">홈으로</a>
+                <a href="/data" class="btn btn-info">데이터 조회</a>
+                <a href="/mindmap" class="btn btn-success">키워드 마인드맵</a>
+            </nav>
+        </header>
+        
+        <div class="user-controls">
+            <div class="control-group">
+                <label for="userSelect">사용자 선택:</label>
+                <select id="userSelect">
+                    <option value="">사용자를 선택하세요</option>
+                </select>
+                <button id="loadMindmap" class="btn btn-primary" disabled>마인드맵 생성</button>
+            </div>
+            
+            <div class="control-group">
+                <label for="relationTypeSelect">관계 유형:</label>
+                <select id="relationTypeSelect">
+                    <option value="all">전체</option>
+                    <option value="creator">생성자</option>
+                    <option value="modifier">수정자</option>
+                    <option value="mentioned">언급됨</option>
+                </select>
+                
+                <button id="resetView" class="btn btn-secondary">뷰 리셋</button>
+            </div>
+            
+            <div class="user-stats" id="userStats">
+                <h4>사용자 통계</h4>
+                <div class="stats-grid" id="statsGrid"></div>
+            </div>
+        </div>
+        
+        <div class="mindmap-container" style="position: relative;">
+            <svg id="mindmapSvg"></svg>
+            <div class="legend">
+                <h4 style="margin: 0 0 10px 0;">노드 타입</h4>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #2c3e50;"></div>
+                    <span>사용자</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #27ae60;"></div>
+                    <span>문서</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #8e44ad;"></div>
+                    <span>키워드</span>
+                </div>
+                <hr style="margin: 10px 0; border: none; border-top: 1px solid #ddd;">
+                <h5 style="margin: 0 0 5px 0; font-size: 0.9em;">관계 유형</h5>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #e74c3c;"></div>
+                    <span>생성자</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f39c12;"></div>
+                    <span>수정자</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #3498db;"></div>
+                    <span>언급됨</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="tooltip" id="tooltip" style="display: none;"></div>
+    </div>
+    
+    <!-- 페이지 내용 모달 -->
+    <div id="pageContentModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">페이지 제목</h3>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="modalContent">
+                    <p>페이지 내용을 불러오는 중...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        class UserMindmapViewer {
+            constructor() {
+                this.users = [];
+                this.currentUser = null;
+                this.currentMindmapData = null;
+                this.svg = null;
+                this.simulation = null;
+                this.init();
+            }
+            
+            async init() {
+                await this.loadUsers();
+                this.setupEventListeners();
+                this.initializeSVG();
+            }
+            
+            async loadUsers() {
+                try {
+                    const response = await fetch('/api/users');
+                    const data = await response.json();
+                    this.users = data.users;
+                    this.populateUserSelect();
+                } catch (error) {
+                    console.error('사용자 목록 로드 오류:', error);
+                    this.showError('사용자 목록을 불러오는 중 오류가 발생했습니다.');
+                }
+            }
+            
+            populateUserSelect() {
+                const select = document.getElementById('userSelect');
+                select.innerHTML = '<option value="">사용자를 선택하세요</option>';
+                
+                this.users.forEach(user => {
+                    const option = document.createElement('option');
+                    option.value = user.name;
+                    option.textContent = `${user.name} (${user.total_relations}개 관계)`;
+                    if (user.department) {
+                        option.textContent += ` - ${user.department}`;
+                    }
+                    select.appendChild(option);
+                });
+            }
+            
+            setupEventListeners() {
+                document.getElementById('userSelect').addEventListener('change', (e) => {
+                    const userName = e.target.value;
+                    const loadBtn = document.getElementById('loadMindmap');
+                    
+                    if (userName) {
+                        loadBtn.disabled = false;
+                        this.currentUser = userName;
+                        this.showUserStats(userName);
+                    } else {
+                        loadBtn.disabled = true;
+                        this.currentUser = null;
+                        this.hideUserStats();
+                    }
+                });
+                
+                document.getElementById('loadMindmap').addEventListener('click', () => {
+                    if (this.currentUser) {
+                        this.loadUserMindmap();
+                    }
+                });
+                
+                document.getElementById('relationTypeSelect').addEventListener('change', () => {
+                    if (this.currentUser) {
+                        this.loadUserMindmap();
+                    }
+                });
+                
+                document.getElementById('resetView').addEventListener('click', () => {
+                    this.resetView();
+                });
+            }
+            
+            async showUserStats(userName) {
+                try {
+                    const response = await fetch(`/api/users/${encodeURIComponent(userName)}/stats`);
+                    const stats = await response.json();
+                    
+                    const statsGrid = document.getElementById('statsGrid');
+                    statsGrid.innerHTML = `
+                        <div class="stat-item">
+                            <div class="stat-number">${stats.created_pages}</div>
+                            <div class="stat-label">생성한 페이지</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">${stats.modified_pages}</div>
+                            <div class="stat-label">수정한 페이지</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">${stats.mentioned_pages}</div>
+                            <div class="stat-label">언급된 페이지</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">${stats.total_relations}</div>
+                            <div class="stat-label">총 관계</div>
+                        </div>
+                    `;
+                    
+                    document.getElementById('userStats').style.display = 'block';
+                } catch (error) {
+                    console.error('사용자 통계 로드 오류:', error);
+                }
+            }
+            
+            hideUserStats() {
+                document.getElementById('userStats').style.display = 'none';
+            }
+            
+            async loadUserMindmap() {
+                const relationType = document.getElementById('relationTypeSelect').value;
+                this.showLoading();
+                
+                try {
+                    const response = await fetch(`/mindmap/user/${encodeURIComponent(this.currentUser)}?relation_type=${relationType}`);
+                    const data = await response.json();
+                    
+                    this.currentMindmapData = data;
+                    this.visualizeMindmap(data);
+                } catch (error) {
+                    console.error('마인드맵 로드 오류:', error);
+                    this.showError('마인드맵을 불러오는 중 오류가 발생했습니다.');
+                }
+            }
+            
+            initializeSVG() {
+                const svg = d3.select("#mindmapSvg")
+                    .attr("width", "100%")
+                    .attr("height", "100%");
+                this.svg = svg;
+                
+                // 줌 기능 추가
+                const zoom = d3.zoom()
+                    .scaleExtent([0.1, 4])
+                    .on("zoom", (event) => {
+                        svg.select("g").attr("transform", event.transform);
+                    });
+                
+                svg.call(zoom);
+                
+                // 컨테이너 그룹 추가
+                svg.append("g");
+            }
+            
+            visualizeMindmap(data) {
+                if (!data.nodes || data.nodes.length === 0) {
+                    this.showMessage('선택한 조건에 해당하는 페이지가 없습니다.');
+                    return;
+                }
+                
+                const svg = this.svg;
+                const width = parseInt(svg.style("width"));
+                const height = parseInt(svg.style("height"));
+                
+                // 기존 내용 제거
+                svg.select("g").selectAll("*").remove();
+                
+                const container = svg.select("g");
+                
+                // 시뮬레이션 설정
+                this.simulation = d3.forceSimulation(data.nodes)
+                    .force("link", d3.forceLink(data.links).id(d => d.id).distance(100))
+                    .force("charge", d3.forceManyBody().strength(-300))
+                    .force("center", d3.forceCenter(width / 2, height / 2));
+                
+                // 링크 그리기
+                const link = container.append("g")
+                    .selectAll("line")
+                    .data(data.links)
+                    .enter().append("line")
+                    .attr("class", "link")
+                    .attr("stroke-width", d => Math.sqrt(d.weight) * 3);
+                
+                // 노드 그리기
+                const node = container.append("g")
+                    .selectAll("g")
+                    .data(data.nodes)
+                    .enter().append("g")
+                    .call(d3.drag()
+                        .on("start", this.dragstarted.bind(this))
+                        .on("drag", this.dragged.bind(this))
+                        .on("end", this.dragended.bind(this)));
+                
+                // 노드 원
+                node.append("circle")
+                    .attr("class", d => {
+                        // 노드 타입에 따라 클래스 결정
+                        if (d.type === 'user') return 'node node-user';
+                        if (d.type === 'document') return 'node node-document';
+                        if (d.type === 'keyword') return 'node node-keyword';
+                        // relation_to_user 기반 클래스 (기존 로직)
+                        if (d.relation_to_user) return `node node-${d.relation_to_user}`;
+                        // 기본값
+                        return 'node';
+                    })
+                    .attr("r", d => d.size || 20)
+                    .on("click", (event, d) => {
+                        this.openPageModal(d.id);
+                    })
+                    .on("mouseover", (event, d) => {
+                        this.showTooltip(event, d);
+                    })
+                    .on("mouseout", () => {
+                        this.hideTooltip();
+                    });
+                
+                // 노드 텍스트
+                node.append("text")
+                    .text(d => d.title.length > 20 ? d.title.substring(0, 20) + "..." : d.title)
+                    .attr("dy", 4);
+                
+                // 시뮬레이션 틱 이벤트
+                this.simulation.on("tick", () => {
+                    link
+                        .attr("x1", d => d.source.x)
+                        .attr("y1", d => d.source.y)
+                        .attr("x2", d => d.target.x)
+                        .attr("y2", d => d.target.y);
+                    
+                    node
+                        .attr("transform", d => `translate(${d.x},${d.y})`);
+                });
+            }
+            
+            dragstarted(event, d) {
+                if (!event.active) this.simulation.alphaTarget(0.3).restart();
+                d.fx = d.x;
+                d.fy = d.y;
+            }
+            
+            dragged(event, d) {
+                d.fx = event.x;
+                d.fy = event.y;
+            }
+            
+            dragended(event, d) {
+                if (!event.active) this.simulation.alphaTarget(0);
+                d.fx = null;
+                d.fy = null;
+            }
+            
+            showTooltip(event, d) {
+                const tooltip = document.getElementById('tooltip');
+                tooltip.innerHTML = `
+                    <strong>${d.title}</strong><br>
+                    관계: ${d.relation_to_user}<br>
+                    컨텍스트: ${d.user_context || '없음'}<br>
+                    키워드: ${d.keywords.join(', ') || '없음'}
+                `;
+                tooltip.style.display = 'block';
+                tooltip.style.left = event.pageX + 10 + 'px';
+                tooltip.style.top = event.pageY + 10 + 'px';
+            }
+            
+            hideTooltip() {
+                document.getElementById('tooltip').style.display = 'none';
+            }
+            
+            async openPageModal(pageId) {
+                try {
+                    const modal = document.getElementById('pageContentModal');
+                    const titleEl = document.getElementById('modalTitle');
+                    const contentEl = document.getElementById('modalContent');
+                    
+                    // 모달 표시
+                    modal.style.display = 'block';
+                    titleEl.textContent = '로딩 중...';
+                    contentEl.innerHTML = '<div class="loading">페이지 내용을 불러오는 중...</div>';
+                    
+                    const response = await fetch(`/pages/${pageId}/content`);
+                    const pageData = await response.json();
+                    
+                    titleEl.textContent = pageData.title || '제목 없음';
+                    
+                    const formatDate = (dateStr) => {
+                        if (!dateStr) return '정보 없음';
+                        try {
+                            return new Date(dateStr).toLocaleString('ko-KR');
+                        } catch {
+                            return dateStr;
+                        }
+                    };
+                    
+                    const keywordsHtml = Array.isArray(pageData.keywords) ? 
+                        pageData.keywords.map(keyword => 
+                            `<span style="background: #e3f2fd; color: #1976d2; padding: 3px 8px; border-radius: 12px; font-size: 12px; margin: 2px;">${keyword}</span>`
+                        ).join(' ') : '키워드 없음';
+                    
+                    contentEl.innerHTML = `
+                        <div style="margin-bottom: 20px;">
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 10px;">
+                                    <div>
+                                        <strong style="color: #495057;">📄 페이지 ID:</strong><br>
+                                        <span style="font-family: monospace; background: #e9ecef; padding: 2px 6px; border-radius: 4px;">${pageData.page_id}</span>
+                                    </div>
+                                    <div>
+                                        <strong style="color: #495057;">🔗 원본 링크:</strong><br>
+                                        <a href="${pageData.url}" target="_blank" style="color: #007bff; text-decoration: none;">Confluence에서 보기 →</a>
+                                    </div>
+                                    <div>
+                                        <strong style="color: #495057;">📅 생성일:</strong><br>
+                                        <span>${formatDate(pageData.created_date)}</span>
+                                    </div>
+                                    <div>
+                                        <strong style="color: #495057;">✏️ 수정일:</strong><br>
+                                        <span>${formatDate(pageData.modified_date)}</span>
+                                    </div>
+                                    <div>
+                                        <strong style="color: #495057;">👤 생성자:</strong><br>
+                                        <span>${pageData.created_by || '정보 없음'}</span>
+                                    </div>
+                                    <div>
+                                        <strong style="color: #495057;">✍️ 수정자:</strong><br>
+                                        <span>${pageData.modified_by || '정보 없음'}</span>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 15px;">
+                                    <strong style="color: #495057;">🏷️ 키워드:</strong><br>
+                                    <div style="margin-top: 8px;">${keywordsHtml}</div>
+                                </div>
+                            </div>
+                            
+                            <div style="background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px;">
+                                <h4 style="color: #495057; margin-top: 0; border-bottom: 2px solid #e9ecef; padding-bottom: 10px;">📋 요약</h4>
+                                <div style="line-height: 1.6; color: #6c757d; margin-bottom: 20px;">
+                                    ${pageData.summary || '요약 정보가 없습니다.'}
+                                </div>
+                                
+                                <h4 style="color: #495057; border-bottom: 2px solid #e9ecef; padding-bottom: 10px;">📖 전체 내용</h4>
+                                <div style="line-height: 1.6; color: #495057; max-height: 400px; overflow-y: auto; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+                                    ${pageData.content ? pageData.content.replace(/\n/g, '<br>') : '내용이 없습니다.'}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                } catch (error) {
+                    console.error('페이지 모달 오류:', error);
+                    const contentEl = document.getElementById('modalContent');
+                    contentEl.innerHTML = `
+                        <div class="error">
+                            페이지 내용을 불러오는 중 오류가 발생했습니다.<br>
+                            ${error.message}
+                        </div>
+                    `;
+                }
+            }
+            
+            resetView() {
+                if (this.simulation) {
+                    this.simulation.alpha(1).restart();
+                }
+                
+                // 줌 리셋
+                this.svg.transition()
+                    .duration(750)
+                    .call(d3.zoom().transform, d3.zoomIdentity);
+            }
+            
+            showLoading() {
+                this.svg.select("g").selectAll("*").remove();
+                this.svg.select("g").append("text")
+                    .attr("x", "50%")
+                    .attr("y", "50%")
+                    .attr("text-anchor", "middle")
+                    .attr("dy", "0.35em")
+                    .style("font-size", "18px")
+                    .style("fill", "#666")
+                    .text("마인드맵을 생성하는 중...");
+            }
+            
+            showMessage(message) {
+                this.svg.select("g").selectAll("*").remove();
+                this.svg.select("g").append("text")
+                    .attr("x", "50%")
+                    .attr("y", "50%")
+                    .attr("text-anchor", "middle")
+                    .attr("dy", "0.35em")
+                    .style("font-size", "16px")
+                    .style("fill", "#666")
+                    .text(message);
+            }
+            
+            showError(message) {
+                this.svg.select("g").selectAll("*").remove();
+                this.svg.select("g").append("text")
+                    .attr("x", "50%")
+                    .attr("y", "50%")
+                    .attr("text-anchor", "middle")
+                    .attr("dy", "0.35em")
+                    .style("font-size", "16px")
+                    .style("fill", "#e74c3c")
+                    .text(message);
+            }
+        }
+        
+        // 전역 함수들
+        function closeModal() {
+            document.getElementById('pageContentModal').style.display = 'none';
+        }
+        
+        // 모달 배경 클릭 시 닫기
+        document.getElementById('pageContentModal').addEventListener('click', (e) => {
+            if (e.target.id === 'pageContentModal') {
+                closeModal();
+            }
+        });
+        
+        // ESC 키로 모달 닫기
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+            }
+        });
+        
+        // 페이지 로드 시 초기화
+        const userMindmapViewer = new UserMindmapViewer();
+    </script>
+</body>
+</html>

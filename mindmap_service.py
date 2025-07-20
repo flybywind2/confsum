@@ -352,6 +352,108 @@ class MindmapService:
             links=links,
             center_node=center_node_id
         )
+    
+    def generate_all_keywords_mindmap(self, threshold: float = None, limit: int = 200) -> MindmapData:
+        """전체 키워드 네트워크 마인드맵 생성"""
+        threshold = threshold or self.threshold
+        
+        # 모든 페이지 조회
+        all_pages = db_manager.get_all_pages(limit=limit)
+        
+        if not all_pages:
+            return MindmapData(nodes=[], links=[], center_node="")
+        
+        # 모든 키워드 수집 및 빈도 계산
+        keyword_count = {}
+        keyword_pages_map = {}
+        keyword_cooccurrence = {}  # 키워드 동시 출현 빈도
+        
+        for page in all_pages:
+            page_keywords = [kw.lower() for kw in page.keywords_list]
+            
+            # 키워드 빈도 계산
+            for kw in page_keywords:
+                keyword_count[kw] = keyword_count.get(kw, 0) + 1
+                if kw not in keyword_pages_map:
+                    keyword_pages_map[kw] = []
+                keyword_pages_map[kw].append(page)
+            
+            # 키워드 간 동시 출현 관계 계산
+            for i, kw1 in enumerate(page_keywords):
+                for kw2 in page_keywords[i+1:]:
+                    if kw1 != kw2:
+                        pair = tuple(sorted([kw1, kw2]))
+                        keyword_cooccurrence[pair] = keyword_cooccurrence.get(pair, 0) + 1
+        
+        # 빈도가 높은 키워드들만 선택 (최소 2번 이상 등장)
+        frequent_keywords = [(kw, count) for kw, count in keyword_count.items() if count >= 2]
+        frequent_keywords.sort(key=lambda x: x[1], reverse=True)
+        
+        # 상위 50개 키워드만 선택
+        top_keywords = frequent_keywords[:50]
+        selected_keywords = {kw for kw, _ in top_keywords}
+        
+        # 노드 생성 (키워드별)
+        nodes = []
+        max_count = max([count for _, count in top_keywords]) if top_keywords else 1
+        
+        for keyword, count in top_keywords:
+            # 키워드 빈도에 따라 노드 크기 결정
+            size = int((count / max_count) * 50) + 10
+            
+            # 키워드를 포함하는 페이지들의 정보를 JSON으로 저장
+            page_info_list = []
+            for page in keyword_pages_map[keyword]:
+                page_info_list.append({
+                    'page_id': page.page_id,
+                    'title': page.title,
+                    'summary': page.summary or "",
+                    'url': page.url or "",
+                    'keywords': page.keywords_list,
+                    'modified_date': page.modified_date,
+                    'created_date': page.created_date
+                })
+            
+            import json
+            pages_json = json.dumps(page_info_list, ensure_ascii=False)
+            
+            node = MindmapNode(
+                id=f"keyword_{keyword}",
+                title=keyword,
+                keywords=[keyword],
+                url="",  # 키워드 노드는 URL 없음
+                summary=pages_json,  # JSON 형태로 페이지 정보 저장
+                size=size
+            )
+            nodes.append(node)
+        
+        # 링크 생성 (키워드 간 동시 출현 관계)
+        links = []
+        for (kw1, kw2), cooccur_count in keyword_cooccurrence.items():
+            if (kw1 in selected_keywords and kw2 in selected_keywords and 
+                cooccur_count >= 2):  # 최소 2번 이상 함께 등장
+                
+                # 동시 출현 빈도에 따라 링크 가중치 결정
+                weight = min(cooccur_count / 10.0, 1.0)  # 0.1 ~ 1.0 범위
+                
+                link = MindmapLink(
+                    source=f"keyword_{kw1}",
+                    target=f"keyword_{kw2}",
+                    weight=weight,
+                    common_keywords=[kw1, kw2]
+                )
+                links.append(link)
+        
+        # 가장 빈도가 높은 키워드를 중심 노드로 선택
+        center_node = f"keyword_{top_keywords[0][0]}" if top_keywords else ""
+        
+        logger.info(f"전체 키워드 마인드맵 생성 완료: 노드 {len(nodes)}개, 링크 {len(links)}개")
+        
+        return MindmapData(
+            nodes=nodes,
+            links=links,
+            center_node=center_node
+        )
 
 # 싱글톤 인스턴스
 mindmap_service = MindmapService()

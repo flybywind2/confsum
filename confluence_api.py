@@ -55,7 +55,7 @@ class ConfluenceClient:
         try:
             url = f"{self.base_url}/rest/api/content/{page_id}"
             params = {
-                'expand': 'body.storage,body.view,body.export_view,version,history,space,metadata,children.page'
+                'expand': 'body.storage,body.view,body.export_view,version,history.createdBy,history.lastUpdated,space,metadata,children.page'
             }
             
             response = self.session.get(url, params=params)
@@ -79,7 +79,7 @@ class ConfluenceClient:
             url = f"{self.base_url}/rest/api/content/{page_id}/child/page"
             params = {
                 'limit': limit,
-                'expand': 'body.storage,body.view,body.export_view,version,history,space'
+                'expand': 'body.storage,body.view,body.export_view,version,history.createdBy,history.lastUpdated,space'
             }
             
             response = self.session.get(url, params=params)
