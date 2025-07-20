@@ -1,6 +1,6 @@
 from typing import List, Dict, Tuple
 from models import MindmapData, MindmapNode, MindmapLink, Page
-from database import db_manager
+from database import optimized_db_manager as db_manager
 from llm_service import calculate_keyword_similarity, get_common_keywords
 from config import config
 import logging

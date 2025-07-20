@@ -363,13 +363,51 @@ function showSinglePageInfo(nodeData, infoDiv) {
     }
     
     const keywordsText = keywords.length > 0 ? keywords.join(", ") : "키워드 없음";
+    const modifiedDate = nodeData.modified_date ? new Date(nodeData.modified_date).toLocaleDateString('ko-KR') : '정보 없음';
+    const summary = nodeData.summary || '요약 정보가 없습니다.';
+    const truncatedSummary = summary.length > 150 ? summary.substring(0, 150) + '...' : summary;
+    const truncatedKeywords = keywordsText.length > 60 ? keywordsText.substring(0, 60) + '...' : keywordsText;
     
     infoDiv.innerHTML = `
-        <h4>${nodeData.title || "제목 없음"}</h4>
-        <p><strong>페이지 ID:</strong> ${nodeData.id || "ID 없음"}</p>
-        <p><strong>키워드:</strong> ${keywordsText}</p>
-        <p><strong>요약:</strong> ${nodeData.summary || "요약 없음"}</p>
-        ${nodeData.url ? `<p><strong>URL:</strong> <a href="${nodeData.url}" target="_blank">${nodeData.url}</a></p>` : ''}
+        <div style="margin-bottom: 15px; padding: 15px; background: linear-gradient(135deg, #3498db 0%, #2980b9 100%); color: white; border-radius: 8px;">
+            <h4 style="margin: 0 0 10px 0; font-size: 18px;">📄 선택된 페이지</h4>
+            <div style="display: flex; gap: 20px; flex-wrap: wrap; font-size: 14px;">
+                <div><strong>📊 페이지 ID:</strong> ${nodeData.id || "ID 없음"}</div>
+                <div><strong>📅 수정일:</strong> ${modifiedDate}</div>
+            </div>
+        </div>
+        <div style="max-height: 450px; overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <div style="padding: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                    <div style="flex: 1;">
+                        <h5 style="margin: 0 0 5px 0; color: #2c3e50; font-size: 16px; font-weight: 600;">
+                            ${nodeData.url ? `<a href="${nodeData.url}" target="_blank" style="text-decoration: none; color: #3498db;">📄 ${nodeData.title || "제목 없음"}</a>` : `📄 ${nodeData.title || "제목 없음"}`}
+                        </h5>
+                        <small style="color: #888; font-size: 12px;">
+                            ID: ${nodeData.id || "ID 없음"} | 수정일: ${modifiedDate}
+                        </small>
+                    </div>
+                </div>
+                
+                <div style="margin-bottom: 12px; padding: 10px; background: #f8f9fa; border-radius: 5px; border-left: 3px solid #3498db;">
+                    <p style="margin: 0; font-size: 14px; color: #555; line-height: 1.5;">
+                        ${truncatedSummary}
+                    </p>
+                </div>
+                
+                <div style="margin-bottom: 10px;">
+                    <div style="display: inline-block; padding: 5px 10px; background: #e8f4fd; border-radius: 15px; font-size: 12px;">
+                        <strong style="color: #2980b9;">🏷️ 키워드:</strong> 
+                        <span style="color: #34495e;">${truncatedKeywords}</span>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    ${nodeData.url ? `<button onclick="window.open('${nodeData.url}', '_blank')" style="padding: 6px 12px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">🔗 원본 보기</button>` : ''}
+                    <button onclick="window.open('/mindmap?parent_id=${nodeData.id}', '_blank')" style="padding: 6px 12px; background: #27ae60; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">🗺️ 마인드맵</button>
+                </div>
+            </div>
+        </div>
     `;
 }
 

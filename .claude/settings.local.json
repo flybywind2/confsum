@@ -27,7 +27,12 @@
       "mcp__playwright__browser_handle_dialog",
       "mcp__playwright__browser_wait_for",
       "mcp__playwright__browser_close",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "mcp__playwright__browser_tab_list",
+      "Bash(timeout:*)",
+      "Bash(rm:*)",
+      "Bash(start http://localhost:8002/mindmap)",
+      "Bash(cmd /c start:*)"
     ],
     "deny": []
   }

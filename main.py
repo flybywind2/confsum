@@ -18,7 +18,7 @@ from models import (
 )
 from confluence_api import ConfluenceClient
 from llm_service import llm_service
-from database_optimized import optimized_db_manager as db_manager
+from database import optimized_db_manager as db_manager
 from mindmap_service import mindmap_service
 from config import config
 
@@ -1240,7 +1240,7 @@ if __name__ == "__main__":
         elif isinstance(llm_service, OpenAIService):
             logger.info(f"OpenAI 서비스 사용: 모델 {config.OPENAI_MODEL}")
     
-    logger.info("서버 시작: http://localhost:8002")
+    logger.info("서버 시작: http://localhost:8003")
     logger.info("===========================================")
     
-    uvicorn.run(app, host="0.0.0.0", port=8002, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8003, log_level="info")
