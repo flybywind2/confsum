@@ -86,6 +86,15 @@ class OptimizedDatabaseManager:
                 session.execute(text("PRAGMA temp_store=memory"))  # 임시 저장소를 메모리에
                 session.execute(text("PRAGMA mmap_size=268435456"))  # 256MB 메모리 맵
                 
+                # space_key 컬럼이 없는 경우 추가
+                try:
+                    session.execute(text("SELECT space_key FROM pages LIMIT 1"))
+                except Exception:
+                    logger.info("space_key 컬럼을 추가합니다...")
+                    session.execute(text("ALTER TABLE pages ADD COLUMN space_key VARCHAR"))
+                    session.commit()
+                    logger.info("space_key 컬럼 추가 완료")
+                
                 # 추가 인덱스가 필요한 경우 여기에 추가
                 # 예: session.execute(text("CREATE INDEX IF NOT EXISTS idx_custom ON pages(column)"))
                 
@@ -695,6 +704,187 @@ class OptimizedDatabaseManager:
             except SQLAlchemyError as e:
                 logger.error("관계 존재 확인 실패", extra_data={"person_id": person_id, "page_id": page_id, "relation_type": relation_type, "error": str(e)})
                 return False
+    
+    # Space 관련 메서드들
+    def get_all_spaces(self) -> List[dict]:
+        """모든 Space 목록 조회"""
+        with self.get_session() as session:
+            try:
+                spaces = session.query(Page.space_key)\
+                    .filter(Page.space_key.isnot(None))\
+                    .distinct()\
+                    .all()
+                
+                space_list = []
+                for space in spaces:
+                    space_key = space[0]
+                    page_count = session.query(Page).filter(Page.space_key == space_key).count()
+                    space_list.append({
+                        "space_key": space_key,
+                        "page_count": page_count
+                    })
+                
+                return sorted(space_list, key=lambda x: x['page_count'], reverse=True)
+            except SQLAlchemyError as e:
+                logger.error("Space 목록 조회 실패", extra_data={"error": str(e)})
+                return []
+    
+    def get_pages_by_space(self, space_key: str, page: int = 1, per_page: int = 20) -> dict:
+        """특정 Space의 페이지들 조회"""
+        with self.get_session() as session:
+            try:
+                query = session.query(Page).filter(Page.space_key == space_key)
+                total = query.count()
+                
+                pages = query.offset((page - 1) * per_page).limit(per_page).all()
+                
+                return {
+                    "pages": [self._page_to_summary(p) for p in pages],
+                    "total": total,
+                    "page": page,
+                    "per_page": per_page,
+                    "space_key": space_key
+                }
+            except SQLAlchemyError as e:
+                logger.error("Space별 페이지 조회 실패", extra_data={"space_key": space_key, "error": str(e)})
+                return {"pages": [], "total": 0, "page": page, "per_page": per_page, "space_key": space_key}
+    
+    def get_space_stats(self, space_key: str) -> dict:
+        """특정 Space의 통계 정보"""
+        with self.get_session() as session:
+            try:
+                total_pages = session.query(Page).filter(Page.space_key == space_key).count()
+                
+                # 최근 수정된 페이지
+                recent_pages = session.query(Page)\
+                    .filter(Page.space_key == space_key)\
+                    .filter(Page.modified_date.isnot(None))\
+                    .count()
+                
+                # 키워드 개수 계산
+                pages_with_keywords = session.query(Page)\
+                    .filter(Page.space_key == space_key)\
+                    .filter(Page.keywords.isnot(None))\
+                    .all()
+                
+                unique_keywords = set()
+                for page in pages_with_keywords:
+                    if page.keywords:
+                        try:
+                            keywords = json.loads(page.keywords)
+                            unique_keywords.update(keywords)
+                        except:
+                            pass
+                
+                return {
+                    "space_key": space_key,
+                    "total_pages": total_pages,
+                    "recent_pages": recent_pages,
+                    "total_unique_keywords": len(unique_keywords),
+                    "top_keywords": list(unique_keywords)[:10]  # 상위 10개만
+                }
+            except SQLAlchemyError as e:
+                logger.error("Space 통계 조회 실패", extra_data={"space_key": space_key, "error": str(e)})
+                return {"space_key": space_key, "total_pages": 0, "recent_pages": 0, "total_unique_keywords": 0, "top_keywords": []}
+    
+    def create_relationship(self, source_page_id: str, target_page_id: str, weight: float, common_keywords: List[str]) -> Optional[PageRelationship]:
+        """페이지 간 관계 생성"""
+        with self.get_session() as session:
+            try:
+                # 이미 존재하는 관계인지 확인
+                existing_relationship = session.query(PageRelationship).filter(
+                    or_(
+                        and_(
+                            PageRelationship.source_page_id == source_page_id,
+                            PageRelationship.target_page_id == target_page_id
+                        ),
+                        and_(
+                            PageRelationship.source_page_id == target_page_id,
+                            PageRelationship.target_page_id == source_page_id
+                        )
+                    )
+                ).first()
+                
+                if existing_relationship:
+                    # 기존 관계 업데이트
+                    existing_relationship.weight = max(existing_relationship.weight, weight)
+                    if common_keywords:
+                        existing_relationship.common_keywords = json.dumps(common_keywords, ensure_ascii=False)
+                    session.commit()
+                    return existing_relationship
+                else:
+                    # 새 관계 생성
+                    relationship_data = {
+                        'source_page_id': source_page_id,
+                        'target_page_id': target_page_id,
+                        'weight': weight,
+                        'common_keywords': json.dumps(common_keywords, ensure_ascii=False) if common_keywords else None
+                    }
+                    relationship = PageRelationship(**relationship_data)
+                    session.add(relationship)
+                    session.flush()
+                    session.refresh(relationship)
+                    
+                    logger.debug(
+                        "페이지 관계 생성 완료",
+                        extra_data={
+                            "source_page_id": source_page_id,
+                            "target_page_id": target_page_id,
+                            "weight": weight
+                        }
+                    )
+                    
+                    return relationship
+                    
+            except SQLAlchemyError as e:
+                logger.error(
+                    "페이지 관계 생성 실패",
+                    extra_data={
+                        "source_page_id": source_page_id,
+                        "target_page_id": target_page_id,
+                        "error": str(e)
+                    }
+                )
+                return None
+    
+    def get_page_relationships(self, page_id: str) -> List[PageRelationship]:
+        """특정 페이지의 모든 관계 조회"""
+        with self.get_session() as session:
+            try:
+                relationships = session.query(PageRelationship).filter(
+                    or_(
+                        PageRelationship.source_page_id == page_id,
+                        PageRelationship.target_page_id == page_id
+                    )
+                ).all()
+                
+                return relationships
+                
+            except SQLAlchemyError as e:
+                logger.error(
+                    "페이지 관계 조회 실패",
+                    extra_data={
+                        "page_id": page_id,
+                        "error": str(e)
+                    }
+                )
+                return []
+    
+    def _page_to_summary(self, page: Page) -> dict:
+        """Page 객체를 요약 dict로 변환"""
+        return {
+            "page_id": page.page_id,
+            "title": page.title,
+            "summary": page.summary or "",
+            "chunk_based_summary": page.chunk_based_summary or "",
+            "keywords": page.keywords_list,
+            "url": page.url or "",
+            "space_key": page.space_key,
+            "modified_date": page.modified_date,
+            "created_date": page.created_date,
+            "created_by": page.created_by,
+            "modified_by": page.modified_by
+        }
 
 
 # 전역 데이터베이스 매니저 인스턴스

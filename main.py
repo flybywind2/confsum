@@ -355,6 +355,7 @@ async def process_pages_background(
                     'summary': summary,
                     'chunk_based_summary': chunk_based_summary,  # RAG chunking 기반 요약
                     'url': page_url,
+                    'space_key': space_key,  # Space Key 추가
                     'modified_date': current_modified,
                     'created_date': page_data.get('history', {}).get('createdDate', ''),
                     'created_by': created_by,
@@ -587,6 +588,11 @@ async def user_mindmap_page(request: Request):
 async def data_page(request: Request):
     """데이터 조회 화면"""
     return templates.TemplateResponse("data.html", {"request": request})
+
+@app.get("/spaces", response_class=HTMLResponse)
+async def spaces_page(request: Request):
+    """Space 관리 화면"""
+    return templates.TemplateResponse("spaces.html", {"request": request})
 
 @app.get("/pages", response_model=PageListResponse)
 async def get_pages(page: int = 1, per_page: int = 20):
@@ -1223,6 +1229,56 @@ async def health_check():
         "database": "sqlite",
         "version": "1.0.0"
     }
+
+# Space 관련 API 엔드포인트들
+@app.get("/api/spaces")
+async def get_all_spaces():
+    """모든 Space 목록 조회"""
+    try:
+        spaces = db_manager.get_all_spaces()
+        return {"spaces": spaces}
+    except Exception as e:
+        logger.error(f"Space 목록 조회 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail="Space 목록 조회 중 오류가 발생했습니다.")
+
+@app.get("/api/spaces/{space_key}/stats")
+async def get_space_stats(space_key: str):
+    """특정 Space의 통계 정보 조회"""
+    try:
+        stats = db_manager.get_space_stats(space_key)
+        return stats
+    except Exception as e:
+        logger.error(f"Space 통계 조회 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail="Space 통계 조회 중 오류가 발생했습니다.")
+
+@app.get("/api/spaces/{space_key}/pages")
+async def get_space_pages(
+    space_key: str,
+    page: int = 1,
+    per_page: int = 20
+):
+    """특정 Space의 페이지들 조회"""
+    try:
+        result = db_manager.get_pages_by_space(space_key, page, per_page)
+        return result
+    except Exception as e:
+        logger.error(f"Space 페이지 조회 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail="Space 페이지 조회 중 오류가 발생했습니다.")
+
+@app.get("/mindmap/space/{space_key}")
+async def get_space_mindmap(
+    space_key: str,
+    threshold: float = 0.3,
+    limit: int = 100
+):
+    """Space별 마인드맵 데이터 조회"""
+    try:
+        mindmap_data = mindmap_service.generate_space_mindmap(space_key, threshold, limit)
+        return mindmap_data
+    except Exception as e:
+        logger.error(f"Space 마인드맵 생성 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail="Space 마인드맵 생성 중 오류가 발생했습니다.")
+
 
 if __name__ == "__main__":
     import uvicorn

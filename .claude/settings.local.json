@@ -32,7 +32,10 @@
       "Bash(timeout:*)",
       "Bash(rm:*)",
       "Bash(start http://localhost:8002/mindmap)",
-      "Bash(cmd /c start:*)"
+      "Bash(cmd /c start:*)",
+      "Bash(tail:*)",
+      "Bash(sqlite3:*)",
+      "mcp__playwright__browser_tab_select"
     ],
     "deny": []
   }

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>데이터 조회 - Confluence Auto-Summarization</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
     <script>
         // 전체 마인드맵 처리 함수
@@ -58,26 +59,44 @@
     </script>
     <style>
         .data-container {
-            display: grid;
-            grid-template-columns: 1fr 2fr;
+            display: flex;
+            flex-direction: column;
             gap: 20px;
-            margin-bottom: 30px;
+            margin-top: 20px;
         }
         
         .search-panel {
-            background: white;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 15px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border: 1px solid #e0e6ed;
+        }
+        
+        .search-panel h3 {
+            margin: 0 0 15px 0;
+            color: #2c3e50;
+            font-size: 1.1em;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 8px;
+        }
+        
+        .search-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr 120px 100px auto;
+            gap: 15px;
+            align-items: end;
         }
         
         .results-panel {
             background: white;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 25px;
+            border-radius: 12px;
+            border: 1px solid #e0e6ed;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
             overflow-x: hidden;
             word-wrap: break-word;
+            width: 100%;
         }
         
         .page-item {
@@ -227,15 +246,112 @@
             margin-top: 5px;
         }
         
+        /* 통계 섹션 스타일 */
+        .stats-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .stats-section h2 {
+            margin: 0 0 15px 0;
+            font-size: 1.2em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .stats-section .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 15px;
+        }
+        
+        .stats-section .stat-item {
+            background: rgba(255,255,255,0.15);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+        }
+        
+        .stats-section .stat-item:hover {
+            background: rgba(255,255,255,0.25);
+            transform: translateY(-2px);
+        }
+        
+        .stats-section .stat-number {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #fff;
+            margin-bottom: 5px;
+        }
+        
+        .stats-section .stat-label {
+            font-size: 0.85em;
+            opacity: 0.9;
+            color: #fff;
+            margin-top: 5px;
+        }
+        
         .loading {
             text-align: center;
             padding: 40px;
             color: #7f8c8d;
         }
         
+        .stats-section .loading {
+            color: rgba(255,255,255,0.8);
+            padding: 20px;
+        }
+        
+        /* 개선된 반응형 디자인 */
         @media (max-width: 768px) {
-            .data-container {
+            .search-content {
                 grid-template-columns: 1fr;
+                gap: 10px;
+            }
+            
+            .search-buttons {
+                flex-direction: row !important;
+                justify-content: space-between;
+            }
+            
+            .search-buttons button {
+                flex: 1;
+                font-size: 0.9em;
+                padding: 8px 12px;
+            }
+            
+            .stats-section .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .search-panel, .results-panel {
+                padding: 15px;
+            }
+            
+            .stats-section {
+                padding: 15px;
+            }
+            
+            .stats-section .stats-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .search-buttons {
+                flex-direction: column !important;
+                gap: 8px !important;
             }
         }
         
@@ -339,45 +455,55 @@
             </nav>
         </header>
         
-        <!-- 통계 정보 -->
-        <section class="card">
-            <h2>통계 정보</h2>
+        <!-- 통계 정보 (컴팩트) -->
+        <section class="stats-section">
+            <h2>📊 데이터 통계</h2>
             <div class="stats-grid" id="statsGrid">
                 <div class="loading">통계 로딩 중...</div>
             </div>
         </section>
         
         <div class="data-container">
-            <!-- 검색 패널 -->
+            <!-- 검색 패널 (컴팩트) -->
             <div class="search-panel">
-                <h3>검색 및 필터</h3>
+                <h3>🔍 검색 및 필터</h3>
                 
-                <div class="form-group">
-                    <label for="searchQuery">검색어:</label>
-                    <input type="text" id="searchQuery" placeholder="제목, 내용, 요약에서 검색">
+                <div class="search-content">
+                    <div class="form-group">
+                        <label for="searchQuery">검색어</label>
+                        <input type="text" id="searchQuery" placeholder="제목, 내용, 요약에서 검색">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="searchKeywords">키워드</label>
+                        <input type="text" id="searchKeywords" placeholder="키워드 (쉼표로 구분)">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="spaceFilter">Space</label>
+                        <select id="spaceFilter">
+                            <option value="">전체 Space</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="perPage">결과 수</label>
+                        <select id="perPage">
+                            <option value="10">10개</option>
+                            <option value="20" selected>20개</option>
+                            <option value="50">50개</option>
+                            <option value="100">100개</option>
+                        </select>
+                    </div>
+                    
+                    <div class="search-buttons" style="display: flex; gap: 8px;">
+                        <button class="btn btn-primary" onclick="searchPages()">검색</button>
+                        <button class="btn btn-secondary" onclick="loadAllPages()">전체</button>
+                        <button class="btn btn-info" onclick="loadRecentPages()">최근</button>
+                    </div>
                 </div>
                 
-                <div class="form-group">
-                    <label for="searchKeywords">키워드:</label>
-                    <input type="text" id="searchKeywords" placeholder="키워드 입력 (쉼표로 구분)">
-                </div>
-                
-                <div class="form-group">
-                    <label for="perPage">페이지당 결과 수:</label>
-                    <select id="perPage">
-                        <option value="10">10개</option>
-                        <option value="20" selected>20개</option>
-                        <option value="50">50개</option>
-                        <option value="100">100개</option>
-                    </select>
-                </div>
-                
-                <button class="btn btn-primary" onclick="searchPages()">검색</button>
-                <button class="btn btn-secondary" onclick="loadAllPages()">전체 조회</button>
-                <button class="btn btn-info" onclick="loadRecentPages()">최근 페이지</button>
-                
-                <div style="margin-top: 20px;">
-                    <h4>빠른 필터</h4>
+                <div style="margin-top: 15px;">
                     <div id="quickFilters"></div>
                 </div>
             </div>

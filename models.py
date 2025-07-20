@@ -18,6 +18,7 @@ class Page(Base):
     chunk_based_summary = Column(Text)  # RAG chunking 기반 요약
     keywords = Column(Text)  # JSON string
     url = Column(String)
+    space_key = Column(String)  # Confluence Space Key
     modified_date = Column(String)
     created_date = Column(String)
     created_by = Column(String)  # 생성자
@@ -109,6 +110,7 @@ class PageSummary(BaseModel):
     chunk_based_summary: Optional[str] = None
     keywords: List[str]
     url: str
+    space_key: Optional[str] = None
     created_date: Optional[str] = None
     modified_date: Optional[str] = None
     created_by: Optional[str] = None
@@ -120,6 +122,7 @@ class MindmapNode(BaseModel):
     keywords: List[str]
     url: str
     summary: str
+    space_key: Optional[str] = None
     size: int  # 노드 크기 (중심성 기반)
 
 class MindmapLink(BaseModel):

@@ -4,8 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Confluence 마인드맵</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/style.css">
+    <!-- Tom Select CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/tom-select/dist/css/tom-select.css" rel="stylesheet">
     <script src="https://d3js.org/d3.v7.min.js"></script>
+    <!-- Tom Select JS -->
+    <script src="https://cdn.jsdelivr.net/npm/tom-select/dist/js/tom-select.complete.min.js"></script>
     <style>
         .mindmap-container {
             width: 100%;
@@ -43,6 +48,69 @@
             pointer-events: none;
             max-width: 300px;
             z-index: 1000;
+        }
+        
+        /* Tom Select 스타일 개선 */
+        .ts-wrapper {
+            min-width: 250px;
+        }
+        
+        .ts-wrapper .ts-control {
+            min-height: 40px;
+            padding: 5px 8px;
+        }
+        
+        .ts-wrapper .item {
+            background: #007bff;
+            color: white;
+            border-radius: 15px;
+            padding: 4px 8px;
+            margin: 2px;
+            display: inline-flex;
+            align-items: center;
+            font-size: 12px;
+        }
+        
+        /* 커스텀 Space 아이템 스타일 */
+        .ts-wrapper .space-item {
+            background: #007bff;
+            color: white;
+            border-radius: 15px;
+            padding: 4px 8px;
+            margin: 2px;
+            display: inline-flex;
+            align-items: center;
+            font-size: 12px;
+        }
+        
+        .ts-wrapper .space-text {
+            margin-right: 6px;
+        }
+        
+        /* 커스텀 제거 버튼 */
+        .ts-wrapper .space-remove {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 50%;
+            width: 18px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+            transition: all 0.2s;
+            color: #333;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            padding: 0;
+            font-weight: bold;
+        }
+        
+        .ts-wrapper .space-remove:hover {
+            background: rgba(255, 255, 255, 0.9);
+            color: #d32f2f;
+            border-color: #d32f2f;
+            transform: scale(1.1);
         }
         
         .controls {
@@ -150,6 +218,14 @@
         </header>
         
         <div class="controls">
+            <label for="spaceFilter">🏢 Space 필터:</label>
+            <select id="spaceFilter" multiple>
+                <!-- 옵션들은 JavaScript에서 동적으로 추가됩니다 -->
+            </select>
+            <button id="clearSpaceFilter" class="btn btn-secondary btn-sm" style="margin-left: 10px;">
+                🧹 모든 선택 취소
+            </button>
+            
             <label for="thresholdSlider">연결 강도 임계값:</label>
             <input type="range" id="thresholdSlider" min="0.0" max="1.0" step="0.05" value="0.2">
             <span id="thresholdValue">0.2</span>

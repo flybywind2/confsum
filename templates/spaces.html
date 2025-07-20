@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space 관리 - Confluence Auto-Summarization</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .space-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .space-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .space-header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .space-header p {
+            margin: 0;
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .spaces-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .space-card {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .space-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+            border-color: #3498db;
+        }
+        
+        .space-card.selected {
+            border-color: #3498db;
+            background: #f8f9ff;
+        }
+        
+        .space-title {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .space-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+        
+        .space-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .stat-item {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .space-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .btn-primary {
+            background: #3498db;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #2980b9;
+        }
+        
+        .btn-success {
+            background: #27ae60;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #229954;
+        }
+        
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+        
+        .btn-info:hover {
+            background: #138496;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .selected-space-panel {
+            background: white;
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 30px;
+            display: none;
+        }
+        
+        .selected-space-panel.show {
+            display: block;
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+        
+        .panel-title {
+            font-size: 1.5em;
+            color: #2c3e50;
+            margin: 0;
+        }
+        
+        .space-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .detail-card {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .detail-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #3498db;
+        }
+        
+        .detail-label {
+            color: #666;
+            margin-top: 5px;
+        }
+        
+        .quick-actions {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        @media (max-width: 768px) {
+            .spaces-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .space-details {
+                grid-template-columns: 1fr 1fr;
+            }
+            
+            .quick-actions {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="space-container">
+        <div class="space-header">
+            <h1>🏢 Confluence Space 관리</h1>
+            <p>Space별로 문서를 체계적으로 관리하고 마인드맵을 생성해보세요</p>
+        </div>
+        
+        <div id="loadingSpaces" class="loading">
+            Space 목록을 불러오는 중...
+        </div>
+        
+        <div id="errorMessage" class="error" style="display: none;"></div>
+        
+        <div id="spacesGrid" class="spaces-grid" style="display: none;"></div>
+        
+        <div id="selectedSpacePanel" class="selected-space-panel">
+            <div class="panel-header">
+                <h2 class="panel-title" id="selectedSpaceTitle">Space 상세 정보</h2>
+                <button class="btn btn-info" onclick="closeSpacePanel()">✕ 닫기</button>
+            </div>
+            
+            <div id="spaceDetails" class="space-details"></div>
+            
+            <div class="quick-actions">
+                <button class="btn btn-primary" onclick="viewSpacePages()">
+                    📄 페이지 목록 보기
+                </button>
+                <button class="btn btn-success" onclick="generateSpaceTitleMindmap()" title="페이지 제목 기반 마인드맵">
+                    🗺️ 타이틀 마인드맵
+                </button>
+                <button class="btn btn-warning" onclick="generateSpaceKeywordMindmap()" title="키워드 네트워크 마인드맵">
+                    🏷️ 키워드 마인드맵
+                </button>
+                <button class="btn btn-info" onclick="exportSpaceData()">
+                    📊 데이터 내보내기
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/spaces.js"></script>
+</body>
+</html>

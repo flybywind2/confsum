@@ -203,6 +203,18 @@ async function loadAllMindmap() {
         const data = await response.json();
         console.log(`📊 데이터: 노드 ${data.nodes?.length || 0}개, 링크 ${data.links?.length || 0}개`);
         
+        // 디버깅: 첫 3개 노드의 space_key 확인
+        if (data.nodes && data.nodes.length > 0) {
+            console.log('🔍 API 응답 첫 3개 노드의 space_key:');
+            data.nodes.slice(0, 3).forEach((node, index) => {
+                console.log(`  API 노드 ${index + 1}:`, {
+                    title: node.title,
+                    space_key: node.space_key,
+                    keys: Object.keys(node)
+                });
+            });
+        }
+        
         if (!data.nodes || data.nodes.length === 0) {
             showMessage('저장된 페이지가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
             return;
@@ -241,6 +253,18 @@ async function loadAllKeywordsMindmap() {
         
         const data = await response.json();
         console.log(`📊 데이터: 노드 ${data.nodes?.length || 0}개, 링크 ${data.links?.length || 0}개`);
+        
+        // 디버깅: 키워드 마인드맵 첫 3개 노드의 space_key 확인
+        if (data.nodes && data.nodes.length > 0) {
+            console.log('🔍 키워드 마인드맵 API 응답 첫 3개 노드의 space_key:');
+            data.nodes.slice(0, 3).forEach((node, index) => {
+                console.log(`  키워드 노드 ${index + 1}:`, {
+                    title: node.title,
+                    space_key: node.space_key,
+                    keys: Object.keys(node)
+                });
+            });
+        }
         
         if (!data.nodes || data.nodes.length === 0) {
             showMessage('저장된 키워드가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
@@ -309,6 +333,43 @@ async function loadSpecificMindmap(parentId) {
     } catch (error) {
         console.error(`❌ 특정 페이지 마인드맵 로드 실패:`, error);
         showMessage(`특정 페이지 마인드맵 로드 실패: ${error.message}`);
+    }
+}
+
+// Space별 마인드맵 로드
+async function loadSpaceMindmap(spaceKey) {
+    console.log(`🏢 Space 마인드맵 로드 시작: ${spaceKey}`);
+    
+    try {
+        const response = await fetch(`/mindmap/space/${spaceKey}?threshold=${currentThreshold}&limit=100`);
+        console.log(`📡 API 응답: ${response.status}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log(`📊 Space 마인드맵 데이터:`, {
+            nodes: data.nodes.length,
+            links: data.links.length,
+            space: spaceKey
+        });
+        
+        // 제목 업데이트
+        document.querySelector('h1').textContent = `Space "${spaceKey}" 마인드맵`;
+        document.querySelector('#subtitle').textContent = `Space "${spaceKey}"의 ${data.nodes.length}개 페이지 관계 시각화`;
+        
+        currentNodes = data.nodes;
+        currentLinks = data.links;
+        
+        // 간단한 D3 시각화
+        createSimpleVisualization(currentNodes, currentLinks);
+        
+        console.log('✅ Space 마인드맵 로드 완료');
+        
+    } catch (error) {
+        console.error(`❌ Space 마인드맵 로드 실패:`, error);
+        showMessage(`Space 마인드맵 로드 실패: ${error.message}`);
     }
 }
 
@@ -710,6 +771,12 @@ function updateThreshold(newThreshold) {
 function resetView() {
     console.log('🔄 뷰 리셋 시작');
     
+    // Space 필터 초기화 (Tom Select)
+    if (spaceSelectInstance) {
+        spaceSelectInstance.clear();
+        console.log('🧹 Space 필터 초기화 (Tom Select)');
+    }
+    
     // 키워드 필터 초기화
     const keywordFilter = document.getElementById('keywordFilter');
     if (keywordFilter) {
@@ -797,6 +864,8 @@ function filterByKeyword(keyword) {
         );
 }
 
+// 기존 단일 Space 필터 함수는 제거됨 - 다중 선택 함수로 대체
+
 // 이벤트 리스너 등록
 function bindEventListeners() {
     // 임계값 슬라이더
@@ -819,6 +888,24 @@ function bindEventListeners() {
         console.log('✅ 임계값 슬라이더 이벤트 등록 완료');
     } else {
         console.warn('⚠️ 임계값 슬라이더 요소를 찾을 수 없습니다');
+    }
+    
+    // Space 필터는 이제 Tom Select로 처리되므로 별도 이벤트 리스너 불필요
+    console.log('🏢 Space 필터는 Tom Select로 관리됩니다.');
+    
+    // 모든 Space 선택 취소 버튼
+    const clearSpaceFilterBtn = document.getElementById('clearSpaceFilter');
+    if (clearSpaceFilterBtn) {
+        console.log('🧹 모든 Space 선택 취소 버튼 이벤트 등록');
+        clearSpaceFilterBtn.addEventListener('click', () => {
+            if (spaceSelectInstance) {
+                spaceSelectInstance.clear();
+                console.log('🧹 모든 Space 선택 취소됨');
+            }
+        });
+        console.log('✅ 모든 Space 선택 취소 버튼 이벤트 등록 완료');
+    } else {
+        console.warn('⚠️ 모든 Space 선택 취소 버튼을 찾을 수 없습니다');
     }
     
     // 키워드 필터
@@ -944,9 +1031,163 @@ async function goToKeywordMindmap() {
     }
 }
 
+// 다중 Space 필터링 함수
+function filterByMultipleSpaces(selectedSpaces) {
+    if (!currentSvg || !currentNodes) return;
+    
+    console.log(`🏢 다중 Space 필터 적용: [${selectedSpaces.join(', ')}]`);
+    
+    // 선택된 Space들에 해당하는 노드 찾기
+    const filteredNodes = currentNodes.filter(node => {
+        return selectedSpaces.includes(node.space_key);
+    });
+    
+    const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+    console.log(`📊 다중 Space 필터 결과: ${filteredNodes.length}/${currentNodes.length} 노드`);
+    
+    // 해당하지 않는 노드들은 완전히 숨기기
+    currentSvg.selectAll(".node")
+        .style("display", d => filteredNodeIds.has(d.id) ? "block" : "none");
+    
+    // 해당하지 않는 링크들도 완전히 숨기기
+    currentSvg.selectAll(".link")
+        .style("display", d => 
+            filteredNodeIds.has(d.source.id) && filteredNodeIds.has(d.target.id) ? "block" : "none"
+        );
+    
+    // 시뮬레이션 재시작 (필터된 노드들의 위치 재조정)
+    if (currentSimulation) {
+        currentSimulation.alpha(0.3).restart();
+    }
+}
+
+// 모든 노드 표시 함수
+function showAllNodes() {
+    if (!currentSvg) return;
+    
+    console.log('👁️ 모든 노드 표시');
+    
+    // 모든 노드와 링크 표시
+    currentSvg.selectAll(".node").style("display", "block");
+    currentSvg.selectAll(".link").style("display", "block");
+    
+    // 시뮬레이션 재시작
+    if (currentSimulation) {
+        currentSimulation.alpha(0.3).restart();
+    }
+}
+
+// Space 목록 로드 함수 및 Tom Select 초기화
+let spaceSelectInstance = null; // Tom Select 인스턴스 저장
+
+async function loadSpaceList(currentSpace = null) {
+    try {
+        const response = await fetch('/api/spaces');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const spaceFilter = document.getElementById('spaceFilter');
+        
+        if (!spaceFilter) {
+            console.log('🔍 spaceFilter 요소가 없습니다.');
+            return;
+        }
+        
+        // 기존 Tom Select 인스턴스가 있으면 제거
+        if (spaceSelectInstance) {
+            spaceSelectInstance.destroy();
+        }
+        
+        // Space 옵션 추가
+        data.spaces.forEach(space => {
+            const option = document.createElement('option');
+            option.value = space.space_key;
+            option.textContent = `${space.space_key} (${space.page_count}개)`;
+            spaceFilter.appendChild(option);
+        });
+        
+        // Tom Select 초기화 (다중 선택 가능)
+        spaceSelectInstance = new TomSelect('#spaceFilter', {
+            maxItems: null, // 무제한 선택 허용
+            placeholder: 'Space를 선택하세요...',
+            allowEmptyOption: true,
+            hideSelected: false, // 선택된 항목도 옵션에서 보이게 함
+            closeAfterSelect: false, // 선택 후에도 드롭다운 열린 상태 유지
+            onDelete: function(values, evt) {
+                // Delete/Backspace 키로 선택된 항목들 제거
+                console.log(`⌫ 키보드로 Space 제거: [${values.join(', ')}]`);
+                return true; // 제거 허용
+            },
+            onItemAdd: function(value, item) {
+                console.log(`🏢 Space 추가: ${value}`);
+                updateSpaceFilter();
+                // 추가된 항목에 클릭 이벤트로 제거 기능 추가
+                addRemoveButtonToItem(item, value);
+            },
+            onItemRemove: function(value, item) {
+                console.log(`🏢 Space 제거: ${value}`);
+                updateSpaceFilter();
+            },
+            onClear: function() {
+                console.log('🧹 모든 Space 필터 제거');
+                updateSpaceFilter();
+            },
+            render: {
+                item: function(data, escape) {
+                    return `<div class="space-item" data-value="${escape(data.value)}">
+                        <span class="space-text">${escape(data.text)}</span>
+                        <button class="space-remove" type="button" title="제거">×</button>
+                    </div>`;
+                }
+            }
+        });
+        
+        // 현재 space가 있으면 선택
+        if (currentSpace) {
+            spaceSelectInstance.addItem(currentSpace);
+            console.log(`🏢 Space 필터 설정: ${currentSpace}`);
+        }
+        
+        console.log(`✅ ${data.spaces.length}개 Space 로드 완료 (Tom Select 초기화됨)`);
+        
+    } catch (error) {
+        console.error('❌ Space 목록 로딩 실패:', error);
+    }
+}
+
+// Space 필터 업데이트 함수
+function updateSpaceFilter() {
+    if (!spaceSelectInstance || !currentNodes) return;
+    
+    const selectedSpaces = spaceSelectInstance.getValue();
+    console.log(`🏢 선택된 Space들: [${selectedSpaces.join(', ')}]`);
+    
+    if (selectedSpaces.length === 0) {
+        // 선택된 Space가 없으면 모든 노드 표시
+        showAllNodes();
+    } else {
+        // 선택된 Space들에 해당하는 노드만 표시
+        filterByMultipleSpaces(selectedSpaces);
+    }
+}
+
+// 추가된 항목에 제거 버튼 이벤트 추가
+function addRemoveButtonToItem(item, value) {
+    const removeButton = item.querySelector('.space-remove');
+    if (removeButton) {
+        removeButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log(`🗑️ X 버튼으로 Space 제거: ${value}`);
+            spaceSelectInstance.removeItem(value);
+        });
+    }
+}
 
 // DOM 로드 시 초기화
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('📋 DOM 로드 완료');
     
     try {
@@ -955,11 +1196,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const mode = urlParams.get('mode');
         const keyword = urlParams.get('keyword');
         const parentId = urlParams.get('parent_id');
+        const space = urlParams.get('space');
+        const type = urlParams.get('type');
         
         console.log('🔍 URL 파라미터:');
         console.log('  mode:', mode);
         console.log('  keyword:', keyword);
         console.log('  parent_id:', parentId);
+        console.log('  space:', space);
+        console.log('  type:', type);
+        
+        // Space 목록 로드
+        await loadSpaceList(space);
         
         // SVG 크기 설정
         const container = document.querySelector('.mindmap-container');
@@ -1004,7 +1252,44 @@ document.addEventListener('DOMContentLoaded', () => {
             if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
             loadAllKeywordsMindmap();
         } 
-        // 3. 특정 페이지 모드 처리 (parent_id가 있는 경우)
+        // 3. Space 모드 처리 (space가 있는 경우)
+        else if (space) {
+            console.log(`🏢 Space 모드 감지, 로드 시작: ${space}, type: ${type}`);
+            
+            if (type === 'keyword') {
+                // 키워드 마인드맵: 전체 키워드 네트워크 로드 후 Space 필터 적용
+                console.log('🏷️ Space 키워드 마인드맵 로드');
+                if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'none';
+                if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
+                
+                // 키워드 마인드맵 로드 후 Space 필터 적용
+                await loadAllKeywordsMindmap();
+                
+                // 마인드맵 로드 완료 후 Space 필터 적용
+                if (space) {
+                    console.log(`🏷️ 키워드 마인드맵에 Space 필터 적용 대기: ${space}`);
+                    setTimeout(() => {
+                        if (spaceSelectInstance) {
+                            console.log(`🏷️ Space 필터 적용 실행: ${space}`);
+                            spaceSelectInstance.clear();
+                            spaceSelectInstance.addItem(space);
+                            
+                            // 제목도 Space에 맞게 업데이트
+                            document.querySelector('h1').textContent = `${space} Space 키워드 네트워크 마인드맵`;
+                        } else {
+                            console.warn('❌ spaceSelectInstance가 아직 생성되지 않음');
+                        }
+                    }, 1000); // 더 긴 지연으로 안정성 확보
+                }
+            } else {
+                // 타이틀 마인드맵: Space 전용 마인드맵 로드
+                console.log('🗺️ Space 타이틀 마인드맵 로드');
+                if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
+                if (allMindmapBtn) allMindmapBtn.style.display = 'none';
+                loadSpaceMindmap(space);
+            }
+        } 
+        // 4. 특정 페이지 모드 처리 (parent_id가 있는 경우)
         else if (parentId) {
             console.log('📄 특정 페이지 모드 감지, 로드 시작:', parentId);
             // 특정 페이지 모드에서는 키워드 마인드맵 버튼 표시
@@ -1012,7 +1297,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (allMindmapBtn) allMindmapBtn.style.display = 'none';
             loadSpecificMindmap(parentId);
         } 
-        // 4. 모든 조건에 해당하지 않는 경우
+        // 5. 모든 조건에 해당하지 않는 경우
         else {
             console.log('❌ 알 수 없는 모드');
             // 기본 상태에서는 키워드 마인드맵 버튼만 표시

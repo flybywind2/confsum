@@ -63,6 +63,7 @@ class MindmapService:
                 keywords=page.keywords_list,
                 url=page.url or "",
                 summary=page.summary or "",
+                space_key=getattr(page, 'space_key', None),
                 size=10  # 기본 크기, 나중에 중심성으로 조정
             )
             nodes.append(node)
@@ -403,7 +404,10 @@ class MindmapService:
             
             # 키워드를 포함하는 페이지들의 정보를 JSON으로 저장
             page_info_list = []
+            space_keys = set()  # 이 키워드가 나타나는 Space들
             for page in keyword_pages_map[keyword]:
+                if hasattr(page, 'space_key') and page.space_key:
+                    space_keys.add(page.space_key)
                 page_info_list.append({
                     'page_id': page.page_id,
                     'title': page.title,
@@ -411,8 +415,17 @@ class MindmapService:
                     'url': page.url or "",
                     'keywords': page.keywords_list,
                     'modified_date': page.modified_date,
-                    'created_date': page.created_date
+                    'created_date': page.created_date,
+                    'space_key': getattr(page, 'space_key', None)
                 })
+            
+            # 가장 많이 나타나는 Space를 primary space로 선택
+            space_count = {}
+            for page in keyword_pages_map[keyword]:
+                if hasattr(page, 'space_key') and page.space_key:
+                    space_count[page.space_key] = space_count.get(page.space_key, 0) + 1
+            
+            primary_space = max(space_count.keys(), key=space_count.get) if space_count else None
             
             import json
             pages_json = json.dumps(page_info_list, ensure_ascii=False)
@@ -423,6 +436,7 @@ class MindmapService:
                 keywords=[keyword],
                 url="",  # 키워드 노드는 URL 없음
                 summary=pages_json,  # JSON 형태로 페이지 정보 저장
+                space_key=primary_space,  # 가장 많이 나타나는 Space
                 size=size
             )
             nodes.append(node)
@@ -448,6 +462,92 @@ class MindmapService:
         center_node = f"keyword_{top_keywords[0][0]}" if top_keywords else ""
         
         logger.info(f"전체 키워드 마인드맵 생성 완료: 노드 {len(nodes)}개, 링크 {len(links)}개")
+        
+        return MindmapData(
+            nodes=nodes,
+            links=links,
+            center_node=center_node
+        )
+    
+    def generate_space_mindmap(self, space_key: str, threshold: float = None, limit: int = 100) -> MindmapData:
+        """Space별 마인드맵 생성"""
+        threshold = threshold or self.threshold
+        
+        logger.info(f"Space 마인드맵 생성 시작: space_key={space_key}, threshold={threshold}")
+        
+        # Space의 모든 페이지 조회
+        space_data = db_manager.get_pages_by_space(space_key, page=1, per_page=limit)
+        pages = space_data.get('pages', [])
+        
+        if not pages:
+            logger.warning(f"Space에 페이지가 없음: {space_key}")
+            return MindmapData(nodes=[], links=[], center_node="")
+        
+        logger.info(f"Space 페이지 조회 완료: {len(pages)}개")
+        
+        # 페이지들을 Page 객체로 변환 (필요한 속성만)
+        page_objects = []
+        for page_data in pages:
+            # page_data는 dict 형태이므로 dict 키로 접근
+            page_obj = type('Page', (), {
+                'page_id': page_data.get('page_id'),
+                'title': page_data.get('title'),
+                'keywords_list': page_data.get('keywords', []),
+                'url': page_data.get('url', ''),
+                'summary': page_data.get('summary', ''),
+                'space_key': page_data.get('space_key')
+            })()
+            page_objects.append(page_obj)
+        
+        # 기존 마인드맵 생성 로직 재사용
+        nodes = []
+        node_map = {}
+        
+        # 노드 생성
+        for page in page_objects:
+            keywords_list = page.keywords_list if page.keywords_list else []
+            
+            node = MindmapNode(
+                id=page.page_id,
+                title=page.title,
+                keywords=keywords_list,
+                url=page.url,
+                summary=page.summary or "",
+                space_key=page.space_key,
+                size=max(10, min(30, len(keywords_list) * 2))
+            )
+            nodes.append(node)
+            node_map[page.page_id] = node
+        
+        # 링크 생성 (키워드 유사도 기반)
+        links = []
+        for i, page1 in enumerate(page_objects):
+            for page2 in page_objects[i+1:]:
+                similarity = calculate_keyword_similarity(
+                    page1.keywords_list, 
+                    page2.keywords_list
+                )
+                
+                if similarity >= threshold:
+                    common_kws = get_common_keywords(
+                        page1.keywords_list, 
+                        page2.keywords_list
+                    )
+                    
+                    link = MindmapLink(
+                        source=page1.page_id,
+                        target=page2.page_id,
+                        weight=similarity,
+                        common_keywords=common_kws
+                    )
+                    links.append(link)
+        
+        # 중심 노드 선택 (가장 많은 키워드를 가진 페이지)
+        center_node = ""
+        if nodes:
+            center_node = max(nodes, key=lambda n: len(n.keywords)).id
+        
+        logger.info(f"Space 마인드맵 생성 완료: space_key={space_key}, 노드 {len(nodes)}개, 링크 {len(links)}개")
         
         return MindmapData(
             nodes=nodes,

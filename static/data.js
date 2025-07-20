@@ -12,8 +12,28 @@ class DataViewer {
     }
     
     init() {
-        this.loadStats();
-        this.loadAllPages();
+        // URL 파라미터에서 space 확인
+        const urlParams = new URLSearchParams(window.location.search);
+        this.currentSpace = urlParams.get('space');
+        
+        console.log('🔍 URL 파라미터 확인:', {
+            fullURL: window.location.href,
+            search: window.location.search,
+            spaceParam: this.currentSpace,
+            allParams: Object.fromEntries(urlParams)
+        });
+        
+        // Space 목록 로드
+        this.loadSpaceList();
+        
+        if (this.currentSpace) {
+            console.log(`🏢 Space 필터 적용: ${this.currentSpace}`);
+            this.loadSpaceData(this.currentSpace);
+        } else {
+            console.log('📄 Space 파라미터 없음, 전체 페이지 로드');
+            this.loadStats();
+            this.loadAllPages();
+        }
     }
     
     async loadStats() {
@@ -275,9 +295,14 @@ class DataViewer {
     }
     
     goToPage(page) {
-        if (this.currentQuery || this.currentKeywords) {
+        if (this.currentSpace) {
+            // Space 필터가 적용된 경우
+            this.loadSpacePages(this.currentSpace, page);
+        } else if (this.currentQuery || this.currentKeywords) {
+            // 검색이 적용된 경우
             this.searchPages(page);
         } else {
+            // 일반 전체 페이지 로드
             this.loadAllPages(page);
         }
     }
@@ -732,6 +757,351 @@ class DataViewer {
         
         // 메모리 정리
         window.URL.revokeObjectURL(url);
+    }
+    
+    // Space별 데이터 로드
+    async loadSpaceData(spaceKey) {
+        try {
+            console.log(`🏢 Space ${spaceKey} 데이터 로딩 시작...`);
+            
+            // Space 통계 로드
+            const statsURL = `/api/spaces/${spaceKey}/stats`;
+            console.log(`📊 통계 요청: ${statsURL}`);
+            const statsResponse = await fetch(statsURL);
+            if (!statsResponse.ok) {
+                throw new Error(`Space 통계 로드 실패: ${statsResponse.status}`);
+            }
+            const spaceStats = await statsResponse.json();
+            console.log(`✅ 통계 응답:`, spaceStats);
+            
+            // Space별 통계 표시
+            this.displaySpaceStats(spaceStats);
+            
+            // Space별 페이지 로드
+            const pagesURL = `/api/spaces/${spaceKey}/pages?page=1&per_page=20`;
+            console.log(`📄 페이지 요청: ${pagesURL}`);
+            const pagesResponse = await fetch(pagesURL);
+            if (!pagesResponse.ok) {
+                throw new Error(`Space 페이지 로드 실패: ${pagesResponse.status}`);
+            }
+            const pagesData = await pagesResponse.json();
+            console.log(`✅ 페이지 응답:`, pagesData);
+            
+            // 페이지 표시
+            this.currentData = pagesData.pages;
+            this.totalPages = Math.ceil(pagesData.total / this.perPage);
+            this.currentTitle = `Space: ${spaceKey}`;
+            
+            // displayResults로 올바른 데이터 형태 전달
+            const spaceResult = {
+                pages: pagesData.pages,
+                total: pagesData.total,
+                page: 1,
+                per_page: this.perPage
+            };
+            this.displayResults(spaceResult, `Space "${spaceKey}"의 페이지`);
+            
+            // Space 필터 표시
+            this.showSpaceFilter(spaceKey);
+            
+            console.log(`✅ Space ${spaceKey} 데이터 로딩 완료: ${pagesData.total}개 페이지`);
+            
+        } catch (error) {
+            console.error('❌ Space 데이터 로드 오류:', error);
+            this.showError(`Space "${spaceKey}" 데이터를 불러오는데 실패했습니다: ${error.message}`);
+        }
+    }
+    
+    // Space별 통계 표시
+    displaySpaceStats(stats) {
+        const statsGrid = document.getElementById('statsGrid');
+        
+        statsGrid.innerHTML = `
+            <div class="stat-item">
+                <div class="stat-number">${stats.total_pages}</div>
+                <div class="stat-label">${stats.space_key} 페이지 수</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">${stats.total_unique_keywords}</div>
+                <div class="stat-label">고유 키워드 수</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">${stats.recent_pages}</div>
+                <div class="stat-label">최근 페이지</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number">${stats.top_keywords.length}</div>
+                <div class="stat-label">주요 키워드</div>
+            </div>
+        `;
+        
+        // Space별 키워드 필터 생성
+        if (stats.top_keywords && stats.top_keywords.length > 0) {
+            this.createQuickFilters(stats.top_keywords.map(keyword => ({ keyword, count: 1 })));
+        }
+    }
+    
+    // Space 필터 배너 표시 (드롭다운과 별개)
+    showSpaceFilter(spaceKey) {
+        const dataContainer = document.querySelector('.data-container');
+        
+        // 기존 Space 필터 배너 제거
+        const existingFilterBanner = document.getElementById('spaceFilterBanner');
+        if (existingFilterBanner) {
+            existingFilterBanner.remove();
+        }
+        
+        // Space 필터 배너 추가 (드롭다운이 있으므로 간단하게 표시)
+        const spaceFilterBanner = document.createElement('div');
+        spaceFilterBanner.id = 'spaceFilterBanner';
+        spaceFilterBanner.style.cssText = `
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-weight: bold;
+            font-size: 1.0em;
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.2);
+        `;
+        
+        spaceFilterBanner.innerHTML = `
+            <span>🏢 현재 필터: Space "${spaceKey}"</span>
+            <button onclick="dataViewer.handleSpaceFilterChange('')" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: all 0.3s; font-size: 0.9em;">
+                ✕ 해제
+            </button>
+        `;
+        
+        // 데이터 컨테이너 맨 위에 추가
+        if (dataContainer) {
+            dataContainer.insertBefore(spaceFilterBanner, dataContainer.firstChild);
+        } else {
+            console.warn('Space 필터 배너를 추가할 위치를 찾을 수 없습니다');
+        }
+    }
+    
+    // Space별 페이지 로드 (페이징용)
+    async loadSpacePages(spaceKey, page = 1) {
+        try {
+            const response = await fetch(`/api/spaces/${spaceKey}/pages?page=${page}&per_page=${this.perPage}`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            this.currentData = data.pages;
+            this.totalPages = Math.ceil(data.total / this.perPage);
+            this.currentPage = page;
+            
+            // displayResults로 올바른 데이터 형태 전달
+            this.displayResults(data, `Space "${spaceKey}"의 페이지`);
+            
+        } catch (error) {
+            console.error('Space 페이지 로드 오류:', error);
+            this.showError('페이지를 불러오는데 실패했습니다.');
+        }
+    }
+    
+    // Space 목록 로드
+    async loadSpaceList() {
+        try {
+            const response = await fetch('/api/spaces');
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            const spaceFilter = document.getElementById('spaceFilter');
+            
+            // 기존 옵션 제거 (전체 Space 옵션 제외)
+            while (spaceFilter.children.length > 1) {
+                spaceFilter.removeChild(spaceFilter.lastChild);
+            }
+            
+            // Space 옵션 추가
+            data.spaces.forEach(space => {
+                const option = document.createElement('option');
+                option.value = space.space_key;
+                option.textContent = `${space.space_key} (${space.page_count}개)`;
+                spaceFilter.appendChild(option);
+            });
+            
+            // URL 파라미터의 space가 있으면 선택
+            if (this.currentSpace) {
+                spaceFilter.value = this.currentSpace;
+            }
+            
+            // 이벤트 리스너 추가
+            spaceFilter.addEventListener('change', (e) => {
+                this.handleSpaceFilterChange(e.target.value);
+            });
+            
+            console.log(`✅ Space 목록 로드 완료: ${data.spaces.length}개`);
+            
+        } catch (error) {
+            console.error('❌ Space 목록 로드 실패:', error);
+        }
+    }
+    
+    // Space 필터 변경 처리
+    handleSpaceFilterChange(spaceKey) {
+        if (spaceKey) {
+            console.log(`🏢 Space 필터 변경: ${spaceKey}`);
+            this.currentSpace = spaceKey;
+            this.currentPage = 1;
+            this.loadSpaceData(spaceKey);
+            
+            // URL 업데이트 (새로고침 없이)
+            const url = new URL(window.location);
+            url.searchParams.set('space', spaceKey);
+            window.history.pushState({}, '', url);
+        } else {
+            console.log('📄 전체 Space 보기');
+            this.currentSpace = null;
+            this.currentPage = 1;
+            this.loadStats();
+            this.loadAllPages();
+            
+            // URL에서 space 파라미터 제거
+            const url = new URL(window.location);
+            url.searchParams.delete('space');
+            window.history.pushState({}, '', url);
+            
+            // Space 필터 배너 제거 (드롭다운은 유지)
+            const existingFilterBanner = document.getElementById('spaceFilterBanner');
+            if (existingFilterBanner) {
+                existingFilterBanner.remove();
+            }
+        }
+    }
+    
+    // 검색 함수 수정 (Space 필터 고려)
+    async searchPages(page = 1) {
+        const query = document.getElementById('searchQuery').value.trim();
+        const keywordsInput = document.getElementById('searchKeywords').value.trim();
+        const spaceFilter = document.getElementById('spaceFilter').value;
+        const keywords = keywordsInput ? keywordsInput.split(',').map(k => k.trim()).filter(k => k) : null;
+        
+        this.currentPage = page;
+        this.currentQuery = query || null;
+        this.currentKeywords = keywords;
+        this.currentSpace = spaceFilter || null;
+        
+        // Space 필터가 있으면 Space별 검색, 없으면 전체 검색
+        if (this.currentSpace) {
+            await this.searchInSpace(this.currentSpace, query, keywords, page);
+        } else {
+            // 기존 전체 검색 로직
+            await this.performGlobalSearch(query, keywords, page);
+        }
+    }
+    
+    // Space 내 검색
+    async searchInSpace(spaceKey, query, keywords, page = 1) {
+        try {
+            const offset = (page - 1) * this.perPage;
+            let url = `/api/spaces/${spaceKey}/pages?page=${page}&per_page=${this.perPage}`;
+            
+            // 검색 파라미터 추가 (서버에서 지원한다면)
+            const params = new URLSearchParams();
+            if (query) params.append('query', query);
+            if (keywords && keywords.length > 0) params.append('keywords', keywords.join(','));
+            
+            if (params.toString()) {
+                url += `&${params.toString()}`;
+            }
+            
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            
+            // 클라이언트에서 추가 필터링 (서버에서 지원하지 않는 경우)
+            let filteredPages = data.pages;
+            if (query || keywords) {
+                filteredPages = this.filterPagesClientSide(data.pages, query, keywords);
+            }
+            
+            this.currentData = filteredPages;
+            this.totalPages = Math.ceil(filteredPages.length / this.perPage);
+            
+            const searchResult = {
+                pages: filteredPages,
+                total: filteredPages.length,
+                page: page,
+                per_page: this.perPage
+            };
+            
+            const title = `Space "${spaceKey}" 검색 결과${query ? ` - "${query}"` : ''}${keywords ? ` (키워드: ${keywords.join(', ')})` : ''}`;
+            this.displayResults(searchResult, title);
+            
+        } catch (error) {
+            console.error('Space 내 검색 실패:', error);
+            this.showError('검색 중 오류가 발생했습니다.');
+        }
+    }
+    
+    // 전체 검색 (기존 로직)
+    async performGlobalSearch(query, keywords, page = 1) {
+        try {
+            const searchData = {
+                query: query,
+                keywords: keywords,
+                page: page,
+                per_page: this.perPage
+            };
+            
+            const response = await fetch('/pages/search', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(searchData)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
+            const data = await response.json();
+            this.currentData = data.pages;
+            this.totalPages = Math.ceil(data.total / this.perPage);
+            
+            const title = `검색 결과${query ? ` - "${query}"` : ''}${keywords ? ` (키워드: ${keywords.join(', ')})` : ''}`;
+            this.displayResults(data, title);
+            
+        } catch (error) {
+            console.error('전체 검색 실패:', error);
+            this.showError('검색 중 오류가 발생했습니다.');
+        }
+    }
+    
+    // 클라이언트 측 필터링
+    filterPagesClientSide(pages, query, keywords) {
+        return pages.filter(page => {
+            let matches = true;
+            
+            // 검색어 필터링
+            if (query) {
+                const searchFields = [page.title, page.summary, page.chunk_based_summary].join(' ').toLowerCase();
+                matches = matches && searchFields.includes(query.toLowerCase());
+            }
+            
+            // 키워드 필터링
+            if (keywords && keywords.length > 0) {
+                const pageKeywords = page.keywords || [];
+                matches = matches && keywords.some(keyword => 
+                    pageKeywords.some(pk => pk.toLowerCase().includes(keyword.toLowerCase()))
+                );
+            }
+            
+            return matches;
+        });
     }
     
     // 일괄 작업 관련 메서드들
