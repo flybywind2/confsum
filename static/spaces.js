@@ -308,6 +308,19 @@ function generateSpaceKeywordMindmap() {
     spaceManager.generateSpaceKeywordMindmap();
 }
 
+function generateCombinedMindmap() {
+    if (!spaceManager.selectedSpace) {
+        alert('Space를 먼저 선택해주세요.');
+        return;
+    }
+    
+    console.log(`🔄 결합 마인드맵 생성: ${spaceManager.selectedSpace}`);
+    
+    // 결합 마인드맵으로 이동
+    const url = `/mindmap?mode=combined`;
+    window.open(url, '_blank');
+}
+
 function exportSpaceData() {
     spaceManager.exportSpaceData();
 }

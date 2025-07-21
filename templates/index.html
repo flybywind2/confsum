@@ -106,6 +106,27 @@
             }
         }
         
+        async function handleCombinedMindmap() {
+            console.log('🚀 handleCombinedMindmap 함수 호출됨');
+            
+            try {
+                const response = await fetch('/pages/stats');
+                const stats = await response.json();
+                
+                if (stats.total_pages === 0) {
+                    alert('저장된 페이지가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
+                    return;
+                }
+                
+                console.log('결합 마인드맵 페이지로 이동');
+                window.open('/mindmap?mode=combined', '_blank');
+                
+            } catch (error) {
+                console.error('결합 마인드맵 오류:', error);
+                alert('결합 마인드맵을 불러오는 중 오류가 발생했습니다.');
+            }
+        }
+        
     </script>
 </head>
 <body>
@@ -118,6 +139,7 @@
                 <a href="/spaces" class="btn btn-primary">🏢 Space 관리</a>
                 <button id="viewAllMindmap" class="btn btn-secondary" onclick="handleAllMindmap()">타이틀 마인드맵</button>
                 <button id="viewKeywordMindmap" class="btn btn-success" onclick="handleKeywordMindmap()">키워드 마인드맵</button>
+                <button id="viewCombinedMindmap" class="btn btn-info" onclick="handleCombinedMindmap()">결합 마인드맵</button>
                 <a href="/user-mindmap" class="btn btn-warning">사용자별 마인드맵</a>
             </nav>
         </header>

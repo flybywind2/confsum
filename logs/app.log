@@ -6759,3 +6759,7 @@
 {"timestamp": "2025-07-21T13:25:26.928685Z", "level": "INFO", "logger": "mindmap_service", "message": "관계 업데이트 시작: 1 페이지", "module": "mindmap_service", "function": "update_relationships", "line": 162}
 {"timestamp": "2025-07-21T13:25:26.928685Z", "level": "INFO", "logger": "mindmap_service", "message": "관계 업데이트 완료", "module": "mindmap_service", "function": "update_relationships", "line": 193}
 {"timestamp": "2025-07-21T13:25:26.928685Z", "level": "INFO", "logger": "confluence_auto.main", "message": "페이지 처리 완료: 1개 페이지", "module": "logging_config", "function": "_log_with_context", "line": 75}
+{"timestamp": "2025-07-21T13:35:55.705383Z", "level": "INFO", "logger": "mindmap_service", "message": "전체 마인드맵 생성 완료: 46개 노드, 143개 링크", "module": "mindmap_service", "function": "generate_all_pages_mindmap", "line": 222}
+{"timestamp": "2025-07-21T13:35:59.679249Z", "level": "INFO", "logger": "mindmap_service", "message": "전체 키워드 마인드맵 생성 완료: 노드 31개, 링크 57개", "module": "mindmap_service", "function": "generate_all_keywords_mindmap", "line": 464}
+{"timestamp": "2025-07-21T13:36:02.576780Z", "level": "INFO", "logger": "mindmap_service", "message": "결합 마인드맵 생성 시작: threshold=0.2, limit=200", "module": "mindmap_service", "function": "generate_combined_mindmap", "line": 562}
+{"timestamp": "2025-07-21T13:36:02.584783Z", "level": "INFO", "logger": "mindmap_service", "message": "결합 마인드맵 생성 완료: 노드 76개 (페이지 46개, 키워드 30개), 링크 304개", "module": "mindmap_service", "function": "generate_combined_mindmap", "line": 698}
