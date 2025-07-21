@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 
 from content_utils import ContentAnalysisResult, content_analyzer
+from table_to_text_converter import convert_table_html_to_text
 from config import config
 from logging_config import get_logger
 
@@ -152,7 +153,9 @@ class HierarchicalChunker(ChunkStrategy):
         table_blocks = re.findall(table_pattern, remaining_content, re.DOTALL | re.IGNORECASE)
         
         for table_block in table_blocks:
-            sections.append((ChunkType.TABLE, self._clean_html(table_block)))
+            # 고도화된 테이블 텍스트 변환 사용
+            table_text = convert_table_html_to_text(table_block)
+            sections.append((ChunkType.TABLE, table_text))
             remaining_content = remaining_content.replace(table_block, '', 1)
         
         # 헤더 기반 섹션 분리
@@ -399,7 +402,7 @@ class HierarchicalChunker(ChunkStrategy):
         return bool(re.search(sentence_endings, content))
     
     def _apply_overlap(self, chunks: List[RAGChunk]) -> List[RAGChunk]:
-        """청크 간 오버랩 적용"""
+        """청크 간 오버랩 적용 (테이블, 코드 블록은 제외)"""
         if len(chunks) <= 1 or self.overlap_tokens <= 0:
             return chunks
         
@@ -410,21 +413,27 @@ class HierarchicalChunker(ChunkStrategy):
             overlap_start = 0
             overlap_end = 0
             
-            # 이전 청크와 오버랩
-            if i > 0:
-                prev_chunk = chunks[i - 1]
-                overlap_text = self._get_overlap_text(prev_chunk.content, True)
-                if overlap_text:
-                    new_content = overlap_text + "\n\n" + new_content
-                    overlap_start = TokenCounter.count_tokens(overlap_text)
-            
-            # 다음 청크와 오버랩
-            if i < len(chunks) - 1:
-                next_chunk = chunks[i + 1]
-                overlap_text = self._get_overlap_text(next_chunk.content, False)
-                if overlap_text:
-                    new_content = new_content + "\n\n" + overlap_text
-                    overlap_end = TokenCounter.count_tokens(overlap_text)
+            # 테이블과 코드 블록은 오버랩 적용하지 않음
+            if chunk.chunk_type in [ChunkType.TABLE, ChunkType.CODE]:
+                pass  # 오버랩 없이 원본 유지
+            else:
+                # 이전 청크와 오버랩 (이전 청크가 테이블/코드가 아닌 경우만)
+                if i > 0:
+                    prev_chunk = chunks[i - 1]
+                    if prev_chunk.chunk_type not in [ChunkType.TABLE, ChunkType.CODE]:
+                        overlap_text = self._get_overlap_text(prev_chunk.content, True)
+                        if overlap_text:
+                            new_content = overlap_text + "\n\n" + new_content
+                            overlap_start = TokenCounter.count_tokens(overlap_text)
+                
+                # 다음 청크와 오버랩 (다음 청크가 테이블/코드가 아닌 경우만)
+                if i < len(chunks) - 1:
+                    next_chunk = chunks[i + 1]
+                    if next_chunk.chunk_type not in [ChunkType.TABLE, ChunkType.CODE]:
+                        overlap_text = self._get_overlap_text(next_chunk.content, False)
+                        if overlap_text:
+                            new_content = new_content + "\n\n" + overlap_text
+                            overlap_end = TokenCounter.count_tokens(overlap_text)
             
             # 새 청크 생성
             new_chunk = RAGChunk(

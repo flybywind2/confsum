@@ -1,26 +1,119 @@
-from abc import ABC, abstractmethod
-from typing import List, Optional, Dict
-import logging
-import json
-import re
-from config import config
-from rag_chunking import RAGChunkingService, RAGChunk
-from models import PersonExtractionResult, ExtractedPerson
+"""
+=============================================================================
+파일명: llm_service.py
+목적: AI 언어 모델(LLM) 서비스들을 관리하는 추상화 계층
 
+주요 역할:
+1. 다양한 AI 모델(Ollama, OpenAI, Gemini 등)에 대한 통합 인터페이스 제공
+2. 텍스트 요약, 키워드 추출, 인물 정보 추출 기능
+3. 이미지 분석 및 텍스트 변환 기능
+4. RAG(검색 증강 생성) 기능 지원
+5. 모델별 특성에 맞는 최적화된 처리
+
+지원하는 AI 모델:
+- Ollama (로컬 실행): llama, gemma, deepseek, qwen 등
+- OpenAI: GPT-4, GPT-4V (Vision) 등
+- Google Gemini: gemini-pro, gemini-pro-vision 등
+
+사용 예시:
+- llm = initialize_llm_service()  # 설정에 따라 자동 선택
+- summary = llm.summarize("긴 텍스트 내용...")
+- keywords = llm.extract_keywords("분석할 텍스트...")
+- image_desc = llm.extract_image_text(image_data)
+
+기술적 특징:
+- ABC(추상 기본 클래스)를 사용한 인터페이스 정의
+- 각 모델의 고유 특성을 활용한 최적화
+- 오류 처리 및 폴백 메커니즘
+- 이미지 처리를 위한 멀티모달 모델 지원
+=============================================================================
+"""
+
+# =============================================================================
+# 필요한 라이브러리들을 가져오기
+# =============================================================================
+
+from abc import ABC, abstractmethod  # 추상 클래스 생성을 위한 모듈
+from typing import List, Optional, Dict  # 타입 힌트
+import logging  # 로깅 기능
+import json  # JSON 데이터 처리
+import re  # 정규표현식 (패턴 매칭)
+
+# 프로젝트 내 모듈들
+from config import config  # 설정 파일
+from rag_chunking import RAGChunkingService, RAGChunk  # RAG 청킹 서비스
+from models import PersonExtractionResult, ExtractedPerson  # 데이터 모델들
+from image_to_text_converter import ImageData, extract_images_from_html  # 이미지 처리
+
+# 로거 생성
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# 추상 기본 클래스 - 모든 LLM 서비스가 구현해야 할 인터페이스
+# =============================================================================
+
 class LLMService(ABC):
+    """
+    모든 AI 언어 모델 서비스가 구현해야 할 추상 기본 클래스
+    
+    이 클래스는 다양한 AI 모델들(Ollama, OpenAI, Gemini 등)이
+    동일한 방식으로 사용될 수 있도록 표준 인터페이스를 정의합니다.
+    
+    @abstractmethod로 표시된 메서드들은 반드시 하위 클래스에서 구현해야 합니다.
+    """
+    
     @abstractmethod
     def summarize(self, content: str) -> str:
+        """
+        긴 텍스트를 요약하는 메서드
+        
+        매개변수:
+            content (str): 요약할 텍스트 내용
+            
+        반환값:
+            str: 요약된 텍스트
+        """
         pass
     
     @abstractmethod
     def extract_keywords(self, content: str) -> List[str]:
+        """
+        텍스트에서 중요한 키워드들을 추출하는 메서드
+        
+        매개변수:
+            content (str): 분석할 텍스트 내용
+            
+        반환값:
+            List[str]: 추출된 키워드들의 리스트
+        """
         pass
     
     @abstractmethod
     def extract_persons(self, content: str, page_title: str = "") -> PersonExtractionResult:
-        """Confluence 문서에서 인물 정보 추출"""
+        """
+        Confluence 문서에서 인물 정보를 추출하는 메서드
+        
+        매개변수:
+            content (str): 분석할 텍스트 내용
+            page_title (str): 페이지 제목 (컨텍스트 제공용)
+            
+        반환값:
+            PersonExtractionResult: 추출된 인물 정보들
+        """
+        pass
+    
+    @abstractmethod
+    def extract_image_text(self, image_data: ImageData, prompt: str = "이 이미지에 무엇이 있는지 자세히 설명해주세요.") -> str:
+        """
+        이미지를 분석하여 텍스트 설명을 생성하는 메서드
+        
+        매개변수:
+            image_data (ImageData): 분석할 이미지 데이터
+            prompt (str): AI에게 주는 분석 지시사항
+            
+        반환값:
+            str: 이미지에 대한 텍스트 설명
+        """
         pass
     
     def _extract_name_candidates(self, content: str) -> List[str]:
@@ -417,6 +510,93 @@ class OllamaService(LLMService):
         except Exception as e:
             logger.error(f"인물 정보 추출 오류: {str(e)}")
             return PersonExtractionResult(persons=[])
+    
+    def extract_image_text(self, image_data: ImageData, prompt: str = "이 이미지에 무엇이 있는지 자세히 설명해주세요.") -> str:
+        """이미지를 분석하여 텍스트 설명을 생성 (Ollama 멀티모달 모델 사용)"""
+        try:
+            from image_to_text_converter import encode_image_to_base64
+            
+            if not image_data.data:
+                return "이미지 데이터가 없습니다."
+            
+            # 멀티모달 모델인지 확인하고 적절한 모델 선택
+            vision_model = self._get_vision_model()
+            
+            if not vision_model:
+                # 비전 모델이 없으면 기본 설명만 제공
+                return f"이미지 파일 ({image_data.format.value.upper()}, {len(image_data.data)} bytes)"
+            
+            # base64 인코딩된 이미지 데이터 생성
+            base64_image = encode_image_to_base64(image_data)
+            if not base64_image:
+                return "이미지 인코딩에 실패했습니다."
+            
+            # Ollama 멀티모달 모델로 이미지 분석
+            response = self.client.chat(
+                model=vision_model,
+                messages=[
+                    {
+                        'role': 'user',
+                        'content': prompt,
+                        'images': [base64_image.split(',')[1]]  # data: 부분 제거하고 base64 부분만
+                    }
+                ]
+            )
+            
+            image_description = response['message']['content'].strip()
+            
+            # 추가 컨텍스트 정보 포함
+            context_info = []
+            if image_data.alt_text:
+                context_info.append(f"대체 텍스트: {image_data.alt_text}")
+            if image_data.title:
+                context_info.append(f"제목: {image_data.title}")
+            
+            if context_info:
+                image_description = f"{image_description}\n\n추가 정보: {' | '.join(context_info)}"
+            
+            logger.info(f"Ollama 이미지 분석 완료: {len(image_description)} 문자")
+            return image_description
+            
+        except Exception as e:
+            logger.error(f"Ollama 이미지 분석 오류: {str(e)}")
+            # 폴백: 기본 이미지 정보만 제공
+            return self._create_fallback_image_description(image_data)
+    
+    def _get_vision_model(self) -> Optional[str]:
+        """사용 가능한 비전 모델 찾기"""
+        vision_models = [
+            'llama3.2-vision',
+            'llama3.2-vision:latest', 
+            'llava',
+            'llava:latest',
+            'bakllava',
+            'moondream'
+        ]
+        
+        try:
+            # 설치된 모델 목록 확인
+            models_response = self.client.list()
+            available_models = [model['name'] for model in models_response.get('models', [])]
+            
+            # 첫 번째로 찾은 비전 모델 사용
+            for vision_model in vision_models:
+                if vision_model in available_models:
+                    logger.info(f"비전 모델 사용: {vision_model}")
+                    return vision_model
+            
+            logger.warning("사용 가능한 비전 모델을 찾을 수 없음")
+            return None
+            
+        except Exception as e:
+            logger.error(f"비전 모델 확인 오류: {str(e)}")
+            return None
+    
+    def _create_fallback_image_description(self, image_data: ImageData) -> str:
+        """이미지 분석 실패 시 기본 설명 생성"""
+        from image_to_text_converter import ImageToTextConverter
+        converter = ImageToTextConverter()
+        return f"이미지 ({converter.create_image_description(image_data)})"
 
 class OpenAIService(LLMService):
     def __init__(self, api_key: str = None, model_name: str = None):
@@ -499,6 +679,105 @@ class OpenAIService(LLMService):
         except Exception as e:
             logger.error(f"인물 정보 추출 오류: {str(e)}")
             return PersonExtractionResult(persons=[])
+    
+    def extract_image_text(self, image_data: ImageData, prompt: str = "이 이미지에 무엇이 있는지 자세히 설명해주세요.") -> str:
+        """이미지를 분석하여 텍스트 설명을 생성 (OpenAI GPT-4V 사용)"""
+        try:
+            from image_to_text_converter import encode_image_to_base64
+            
+            if not image_data.data:
+                return "이미지 데이터가 없습니다."
+            
+            # base64 인코딩된 이미지 데이터 생성
+            base64_image = encode_image_to_base64(image_data)
+            if not base64_image:
+                return "이미지 인코딩에 실패했습니다."
+            
+            # OpenAI Vision API 사용 - 최신 방식
+            try:
+                import openai
+                client = openai.OpenAI(api_key=self.api_key)
+                
+                # GPT-4V 또는 GPT-4o 사용
+                vision_model = self._get_openai_vision_model()
+                
+                response = client.chat.completions.create(
+                    model=vision_model,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": prompt},
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": base64_image,
+                                        "detail": "auto"
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    max_tokens=1000
+                )
+                
+                image_description = response.choices[0].message.content.strip()
+                
+            except ImportError:
+                # 폴백: langchain_openai 사용
+                logger.warning("openai 패키지가 없어 langchain_openai 사용")
+                
+                # langchain 방식으로 vision 처리 (제한적)
+                vision_prompt = f"{prompt}\n\n[이미지 정보: {image_data.format.value.upper()} 포맷, 크기: {len(image_data.data)} bytes]"
+                
+                if image_data.alt_text:
+                    vision_prompt += f"\n대체 텍스트: {image_data.alt_text}"
+                if image_data.title:
+                    vision_prompt += f"\n제목: {image_data.title}"
+                
+                response = self.client.invoke(vision_prompt)
+                image_description = response.content
+            
+            # 추가 컨텍스트 정보 포함
+            context_info = []
+            if image_data.alt_text:
+                context_info.append(f"대체 텍스트: {image_data.alt_text}")
+            if image_data.title:
+                context_info.append(f"제목: {image_data.title}")
+            
+            if context_info:
+                image_description = f"{image_description}\n\n추가 정보: {' | '.join(context_info)}"
+            
+            logger.info(f"OpenAI 이미지 분석 완료: {len(image_description)} 문자")
+            return image_description
+            
+        except Exception as e:
+            logger.error(f"OpenAI 이미지 분석 오류: {str(e)}")
+            # 폴백: 기본 이미지 정보만 제공
+            return self._create_fallback_image_description(image_data)
+    
+    def _get_openai_vision_model(self) -> str:
+        """사용할 OpenAI 비전 모델 결정"""
+        # 최신 GPT-4 계열 모델들 우선순위
+        vision_models = [
+            "gpt-4o",
+            "gpt-4o-mini", 
+            "gpt-4-vision-preview",
+            "gpt-4-turbo"
+        ]
+        
+        # 설정된 모델이 비전을 지원하는지 확인
+        if any(model in self.model_name for model in ["gpt-4o", "gpt-4-vision", "gpt-4-turbo"]):
+            return self.model_name
+        
+        # 기본값으로 gpt-4o-mini 사용 (비용 효율적)
+        return "gpt-4o-mini"
+    
+    def _create_fallback_image_description(self, image_data: ImageData) -> str:
+        """이미지 분석 실패 시 기본 설명 생성"""
+        from image_to_text_converter import ImageToTextConverter
+        converter = ImageToTextConverter()
+        return f"이미지 ({converter.create_image_description(image_data)})"
 
 class LLMServiceFactory:
     @staticmethod
@@ -627,6 +906,17 @@ class FallbackService(LLMService):
         """폴백 서비스에서는 인물 정보 추출 불가"""
         logger.warning("폴백 서비스는 인물 정보 추출을 지원하지 않습니다.")
         return PersonExtractionResult(persons=[])
+    
+    def extract_image_text(self, image_data: ImageData, prompt: str = "이 이미지에 무엇이 있는지 자세히 설명해주세요.") -> str:
+        """폴백 서비스에서는 이미지 분석 불가, 기본 정보만 제공"""
+        from image_to_text_converter import ImageToTextConverter
+        
+        converter = ImageToTextConverter()
+        basic_description = converter.create_image_description(image_data)
+        
+        logger.warning("폴백 서비스는 이미지 분석을 지원하지 않으므로 기본 정보만 제공합니다.")
+        
+        return f"이미지 파일: {basic_description}"
 
 # 기본 LLM 서비스 인스턴스
 def initialize_llm_service():

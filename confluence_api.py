@@ -1,19 +1,76 @@
-import requests
-from typing import List, Dict, Optional
-import logging
+"""
+=============================================================================
+파일명: confluence_api.py
+목적: Confluence 서버와 통신하여 페이지 데이터를 가져오는 API 클라이언트
 
+주요 역할:
+1. Confluence 서버 연결 및 인증 관리
+2. 페이지 내용 조회 (HTML 포맷)
+3. 페이지 하위 목록 조회
+4. 첨부파일 목록 조회 및 다운로드
+5. HTML에서 텍스트 추출
+
+사용 예시:
+- client = ConfluenceClient('http://localhost:8090', 'username', 'password')
+- page_data = client.get_page_content('페이지ID')
+- attachment = client.download_attachment('페이지ID', '파일명.png')
+
+주의사항:
+- HTTP Basic 인증 사용 (사용자명/비밀번호)
+- REST API v2 사용
+- 첨부파일 다운로드는 10MB 제한
+=============================================================================
+"""
+
+# =============================================================================
+# 필요한 라이브러리들을 가져오기
+# =============================================================================
+
+import requests  # HTTP 요청을 보내기 위한 라이브러리
+from typing import List, Dict, Optional  # 타입 힌트 (코드의 가독성 향상)
+import logging  # 로깅 기능 (프로그램 실행 과정 기록)
+
+# 이 파일 전용 로거 생성
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# Confluence API 클라이언트 메인 클래스
+# =============================================================================
+
 class ConfluenceClient:
+    """
+    Confluence 서버와 통신하는 클라이언트 클래스
+    
+    이 클래스는 Confluence REST API를 사용하여 페이지 데이터를 조회하고
+    첨부파일을 다운로드하는 기능을 제공합니다.
+    """
+    
     def __init__(self, base_url: str, username: str, password: str):
+        """
+        ConfluenceClient를 초기화합니다.
+        
+        매개변수:
+            base_url (str): Confluence 서버의 기본 URL (예: 'http://localhost:8090')
+            username (str): 로그인할 사용자명
+            password (str): 사용자 비밀번호
+        """
+        # URL 끝의 슬래시(/) 제거 (URL 정규화)
         self.base_url = base_url.rstrip('/')
+        
+        # 로그인 정보 저장
         self.username = username
         self.password = password
+        
+        # HTTP 세션 생성 (연결 재사용으로 성능 향상)
         self.session = requests.Session()
+        
+        # 세션에 인증 정보 설정 (HTTP Basic Auth)
         self.session.auth = (username, password)
+        
+        # 모든 요청에 공통으로 사용할 HTTP 헤더 설정
         self.session.headers.update({
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
+            'Content-Type': 'application/json',  # 요청 데이터 형식
+            'Accept': 'application/json'         # 응답 데이터 형식
         })
     
     def test_connection(self) -> Dict[str, any]:
@@ -212,3 +269,80 @@ class ConfluenceClient:
             return f"{self.base_url}/spaces/{space_key}/pages/{page_id}"
         else:
             return f"{self.base_url}/pages/viewpage.action?pageId={page_id}"
+    
+    def get_page_attachments(self, page_id: str) -> List[Dict]:
+        """페이지의 첨부파일 목록 조회"""
+        try:
+            url = f"{self.base_url}/rest/api/content/{page_id}/child/attachment"
+            response = self.session.get(url)
+            
+            if response.status_code == 200:
+                result = response.json()
+                return result.get('results', [])
+            else:
+                logger.error(f"첨부파일 목록 조회 실패: {response.status_code}")
+                return []
+        except Exception as e:
+            logger.error(f"첨부파일 목록 조회 오류: {str(e)}")
+            return []
+    
+    def download_attachment(self, page_id: str, filename: str) -> Optional[bytes]:
+        """페이지의 첨부파일 다운로드"""
+        try:
+            # URL 인코딩을 위한 파일명 처리
+            import urllib.parse
+            encoded_filename = urllib.parse.quote(filename)
+            
+            # Confluence 표준 다운로드 URL 사용 
+            download_url = f"{self.base_url}/download/attachments/{page_id}/{encoded_filename}"
+            
+            # 다운로드를 위한 별도 세션 (Content-Type 헤더 제거)
+            download_session = requests.Session()
+            download_session.auth = (self.username, self.password)
+            
+            logger.debug(f"첨부파일 다운로드 시도: {download_url}")
+            
+            response = download_session.get(download_url, stream=True, timeout=30)
+            
+            if response.status_code == 200:
+                # 파일 크기 제한 (10MB)
+                max_size = 10 * 1024 * 1024
+                content = b""
+                
+                for chunk in response.iter_content(chunk_size=8192):
+                    content += chunk
+                    if len(content) > max_size:
+                        logger.warning(f"첨부파일 크기가 너무 큼: {filename}")
+                        return None
+                
+                logger.info(f"첨부파일 다운로드 완료: {filename} ({len(content)} bytes)")
+                return content
+                
+            else:
+                logger.error(f"첨부파일 다운로드 실패: {response.status_code} - {response.text[:200]}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"첨부파일 다운로드 오류: {str(e)}")
+            return None
+    
+    def get_attachment_info(self, page_id: str, filename: str) -> Optional[Dict]:
+        """첨부파일 정보 조회"""
+        try:
+            attachments = self.get_page_attachments(page_id)
+            
+            for attachment in attachments:
+                if attachment.get('title') == filename:
+                    return {
+                        'id': attachment.get('id'),
+                        'title': attachment.get('title'),
+                        'mediaType': attachment.get('extensions', {}).get('mediaType'),
+                        'fileSize': attachment.get('extensions', {}).get('fileSize'),
+                        'download_url': f"{self.base_url}/rest/api/content/{attachment.get('id')}/download"
+                    }
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"첨부파일 정보 조회 오류: {str(e)}")
+            return None

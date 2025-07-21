@@ -40,7 +40,9 @@
       "mcp__memory__create_relations",
       "mcp__memory__add_observations",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(.\\venv\\Scripts\\activate)",
+      "Bash(pip install:*)"
     ],
     "deny": []
   }
