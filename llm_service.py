@@ -23,6 +23,114 @@ class LLMService(ABC):
         """Confluence 문서에서 인물 정보 추출"""
         pass
     
+    def _extract_name_candidates(self, content: str) -> List[str]:
+        """정규표현식으로 후보 이름 패턴 추출"""
+        candidates = set()
+        
+        # 한글 이름 패턴 (2-4글자 또는 님으로 끝나는 것)
+        korean_name_pattern = r'[가-힣]{2,4}(?=\s|님|씨|[,.]|$)'
+        korean_names = re.findall(korean_name_pattern, content)
+        
+        # '님'으로 끝나는 한글 이름 패턴 (3-5글자: 이름2-4글자 + 님)
+        korean_name_nim_pattern = r'[가-힣]{2,4}님(?=\s|[,.]|$)'
+        korean_names_nim = re.findall(korean_name_nim_pattern, content)
+        
+        candidates.update(korean_names)
+        candidates.update(korean_names_nim)
+        
+        # 이메일에서 한글 이름만 추출 (한글이 포함된 경우만)
+        email_pattern = r'([가-힣]{2,4})@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        email_matches = re.findall(email_pattern, content)
+        candidates.update(email_matches)
+        
+        # 영문 이름은 제외 (한글 이름만 허용)
+        
+        # 일반적이지 않은 단어들 필터링 및 이름 정리
+        filtered_candidates = set()
+        excluded_words = {
+            '개발', '관리', '프로젝트', '문서', '페이지', '시스템', '회사', '부서', 
+            '팀장', '대리', '과장', '부장', '이사', '사장', '대표', '차장', '주임',
+            '센터', '사업부', '본부', '그룹', '계획', '업무', '담당', '책임'
+        }
+        
+        for candidate in candidates:
+            # '님' 제거 처리
+            clean_name = candidate.rstrip('님') if candidate.endswith('님') else candidate
+            
+            # 한글 2-4자 이름만 허용
+            if (re.match(r'^[가-힣]{2,4}$', clean_name) and 
+                clean_name not in excluded_words and
+                not clean_name.isdigit()):
+                filtered_candidates.add(clean_name)
+        
+        filtered_candidates = list(filtered_candidates)
+        
+        return filtered_candidates[:20]  # 최대 20개로 제한
+    
+    def _create_person_extraction_prompt(self, content: str, page_title: str, candidates: List[str]) -> str:
+        """인물 추출용 프롬프트 생성"""
+        prompt = f"""다음 Confluence 문서에서 언급된 실제 인물들의 정보를 JSON 형식으로 추출해주세요.
+
+문서 제목: {page_title}
+
+문서 내용:
+{content}
+
+후보 인물명: {', '.join(candidates)}
+
+다음 조건을 만족하는 실제 인물만 추출해주세요:
+1. 실명으로 언급된 사람 (가명이나 역할명 제외)
+2. 구체적인 맥락이 있는 경우
+3. 조직 내 구성원으로 보이는 경우
+
+추출할 정보:
+- name: 인물 이름 (필수)
+- department: 부서/팀 정보 (있는 경우)
+- role: 역할/직책 (있는 경우)
+- email: 이메일 주소 (있는 경우)
+- mentioned_context: 언급된 구체적 문맥 (50자 이내)
+- confidence: 신뢰도 (0.0-1.0, 확실한 경우 0.8 이상)
+
+JSON 형식으로만 응답해주세요:
+{{
+  "persons": [
+    {{
+      "name": "홍길동",
+      "department": "개발팀",
+      "role": "팀장",
+      "email": "hong@company.com",
+      "mentioned_context": "프로젝트 승인 담당",
+      "confidence": 0.95
+    }}
+  ]
+}}"""
+        return prompt
+
+    def _extract_json_from_response(self, response: str) -> str:
+        """응답에서 JSON 부분만 추출"""
+        # ```json으로 감싸진 경우 처리
+        if '```json' in response:
+            start = response.find('```json') + 7
+            end = response.find('```', start)
+            if end != -1:
+                return response[start:end].strip()
+        
+        # JSON 객체 부분만 추출 시도
+        response = response.strip()
+        start = response.find('{')
+        if start != -1:
+            # 마지막 }까지 찾기
+            brace_count = 0
+            for i, char in enumerate(response[start:], start):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        return response[start:i+1]
+        
+        return response
+    
     def chunk_based_summarize(self, content: str, page_title: str = "", use_chunking: bool = None) -> str:
         """RAG 최적화된 chunking 기반 요약 생성"""
         if use_chunking is None:
@@ -117,6 +225,7 @@ class LLMService(ABC):
                 f"[청크 {i+1} - {chunk.chunk_type.value}]\n{chunk.content}" 
                 for i, chunk in enumerate(selected_chunks)
             ])
+            logger.info(f"결합된 청크 내용: {combined_content}")
             
             # 토큰 제한 확인 (매우 긴 경우에만)
             if len(combined_content) > 8000:
@@ -308,114 +417,6 @@ class OllamaService(LLMService):
         except Exception as e:
             logger.error(f"인물 정보 추출 오류: {str(e)}")
             return PersonExtractionResult(persons=[])
-    
-    def _extract_name_candidates(self, content: str) -> List[str]:
-        """정규표현식으로 후보 이름 패턴 추출"""
-        candidates = set()
-        
-        # 한글 이름 패턴 (2-4글자 또는 님으로 끝나는 것)
-        korean_name_pattern = r'[가-힣]{2,4}(?=\s|님|씨|[,.]|$)'
-        korean_names = re.findall(korean_name_pattern, content)
-        
-        # '님'으로 끝나는 한글 이름 패턴 (3-5글자: 이름2-4글자 + 님)
-        korean_name_nim_pattern = r'[가-힣]{2,4}님(?=\s|[,.]|$)'
-        korean_names_nim = re.findall(korean_name_nim_pattern, content)
-        
-        candidates.update(korean_names)
-        candidates.update(korean_names_nim)
-        
-        # 이메일에서 한글 이름만 추출 (한글이 포함된 경우만)
-        email_pattern = r'([가-힣]{2,4})@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-        email_matches = re.findall(email_pattern, content)
-        candidates.update(email_matches)
-        
-        # 영문 이름은 제외 (한글 이름만 허용)
-        
-        # 일반적이지 않은 단어들 필터링 및 이름 정리
-        filtered_candidates = set()
-        excluded_words = {
-            '개발', '관리', '프로젝트', '문서', '페이지', '시스템', '회사', '부서', 
-            '팀장', '대리', '과장', '부장', '이사', '사장', '대표', '차장', '주임',
-            '센터', '사업부', '본부', '그룹', '계획', '업무', '담당', '책임'
-        }
-        
-        for candidate in candidates:
-            # '님' 제거 처리
-            clean_name = candidate.rstrip('님') if candidate.endswith('님') else candidate
-            
-            # 한글 2-4자 이름만 허용
-            if (re.match(r'^[가-힣]{2,4}$', clean_name) and 
-                clean_name not in excluded_words and
-                not clean_name.isdigit()):
-                filtered_candidates.add(clean_name)
-        
-        filtered_candidates = list(filtered_candidates)
-        
-        return filtered_candidates[:20]  # 최대 20개로 제한
-    
-    def _create_person_extraction_prompt(self, content: str, page_title: str, candidates: List[str]) -> str:
-        """인물 추출용 프롬프트 생성"""
-        prompt = f"""다음 Confluence 문서에서 언급된 실제 인물들의 정보를 JSON 형식으로 추출해주세요.
-
-문서 제목: {page_title}
-
-문서 내용:
-{content}
-
-후보 인물명: {', '.join(candidates)}
-
-다음 조건을 만족하는 실제 인물만 추출해주세요:
-1. 실명으로 언급된 사람 (가명이나 역할명 제외)
-2. 구체적인 맥락이 있는 경우
-3. 조직 내 구성원으로 보이는 경우
-
-추출할 정보:
-- name: 인물 이름 (필수)
-- department: 부서/팀 정보 (있는 경우)
-- role: 역할/직책 (있는 경우)
-- email: 이메일 주소 (있는 경우)
-- mentioned_context: 언급된 구체적 문맥 (50자 이내)
-- confidence: 신뢰도 (0.0-1.0, 확실한 경우 0.8 이상)
-
-JSON 형식으로만 응답해주세요:
-{{
-  "persons": [
-    {{
-      "name": "홍길동",
-      "department": "개발팀",
-      "role": "팀장",
-      "email": "hong@company.com",
-      "mentioned_context": "프로젝트 승인 담당",
-      "confidence": 0.95
-    }}
-  ]
-}}"""
-        return prompt
-
-    def _extract_json_from_response(self, response: str) -> str:
-        """응답에서 JSON 부분만 추출"""
-        # ```json으로 감싸진 경우 처리
-        if '```json' in response:
-            start = response.find('```json') + 7
-            end = response.find('```', start)
-            if end != -1:
-                return response[start:end].strip()
-        
-        # JSON 객체 부분만 추출 시도
-        response = response.strip()
-        start = response.find('{')
-        if start != -1:
-            # 마지막 }까지 찾기
-            brace_count = 0
-            for i, char in enumerate(response[start:], start):
-                if char == '{':
-                    brace_count += 1
-                elif char == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        return response[start:i+1]
-        
-        return response
 
 class OpenAIService(LLMService):
     def __init__(self, api_key: str = None, model_name: str = None):
@@ -498,114 +499,6 @@ class OpenAIService(LLMService):
         except Exception as e:
             logger.error(f"인물 정보 추출 오류: {str(e)}")
             return PersonExtractionResult(persons=[])
-    
-    def _extract_name_candidates(self, content: str) -> List[str]:
-        """정규표현식으로 후보 이름 패턴 추출"""
-        candidates = set()
-        
-        # 한글 이름 패턴 (2-4글자 또는 님으로 끝나는 것)
-        korean_name_pattern = r'[가-힣]{2,4}(?=\s|님|씨|[,.]|$)'
-        korean_names = re.findall(korean_name_pattern, content)
-        
-        # '님'으로 끝나는 한글 이름 패턴 (3-5글자: 이름2-4글자 + 님)
-        korean_name_nim_pattern = r'[가-힣]{2,4}님(?=\s|[,.]|$)'
-        korean_names_nim = re.findall(korean_name_nim_pattern, content)
-        
-        candidates.update(korean_names)
-        candidates.update(korean_names_nim)
-        
-        # 이메일에서 한글 이름만 추출 (한글이 포함된 경우만)
-        email_pattern = r'([가-힣]{2,4})@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-        email_matches = re.findall(email_pattern, content)
-        candidates.update(email_matches)
-        
-        # 영문 이름은 제외 (한글 이름만 허용)
-        
-        # 일반적이지 않은 단어들 필터링 및 이름 정리
-        filtered_candidates = set()
-        excluded_words = {
-            '개발', '관리', '프로젝트', '문서', '페이지', '시스템', '회사', '부서', 
-            '팀장', '대리', '과장', '부장', '이사', '사장', '대표', '차장', '주임',
-            '센터', '사업부', '본부', '그룹', '계획', '업무', '담당', '책임'
-        }
-        
-        for candidate in candidates:
-            # '님' 제거 처리
-            clean_name = candidate.rstrip('님') if candidate.endswith('님') else candidate
-            
-            # 한글 2-4자 이름만 허용
-            if (re.match(r'^[가-힣]{2,4}$', clean_name) and 
-                clean_name not in excluded_words and
-                not clean_name.isdigit()):
-                filtered_candidates.add(clean_name)
-        
-        filtered_candidates = list(filtered_candidates)
-        
-        return filtered_candidates[:20]  # 최대 20개로 제한
-    
-    def _create_person_extraction_prompt(self, content: str, page_title: str, candidates: List[str]) -> str:
-        """인물 추출용 프롬프트 생성"""
-        prompt = f"""다음 Confluence 문서에서 언급된 실제 인물들의 정보를 JSON 형식으로 추출해주세요.
-
-문서 제목: {page_title}
-
-문서 내용:
-{content}
-
-후보 인물명: {', '.join(candidates)}
-
-다음 조건을 만족하는 실제 인물만 추출해주세요:
-1. 실명으로 언급된 사람 (가명이나 역할명 제외)
-2. 구체적인 맥락이 있는 경우
-3. 조직 내 구성원으로 보이는 경우
-
-추출할 정보:
-- name: 인물 이름 (필수)
-- department: 부서/팀 정보 (있는 경우)
-- role: 역할/직책 (있는 경우)
-- email: 이메일 주소 (있는 경우)
-- mentioned_context: 언급된 구체적 문맥 (50자 이내)
-- confidence: 신뢰도 (0.0-1.0, 확실한 경우 0.8 이상)
-
-JSON 형식으로만 응답해주세요:
-{{
-  "persons": [
-    {{
-      "name": "홍길동",
-      "department": "개발팀",
-      "role": "팀장",
-      "email": "hong@company.com",
-      "mentioned_context": "프로젝트 승인 담당",
-      "confidence": 0.95
-    }}
-  ]
-}}"""
-        return prompt
-    
-    def _extract_json_from_response(self, response: str) -> str:
-        """응답에서 JSON 부분만 추출"""
-        # ```json으로 감싸진 경우 처리
-        if '```json' in response:
-            start = response.find('```json') + 7
-            end = response.find('```', start)
-            if end != -1:
-                return response[start:end].strip()
-        
-        # JSON 객체 부분만 추출 시도
-        response = response.strip()
-        start = response.find('{')
-        if start != -1:
-            # 마지막 }까지 찾기
-            brace_count = 0
-            for i, char in enumerate(response[start:], start):
-                if char == '{':
-                    brace_count += 1
-                elif char == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        return response[start:i+1]
-        
-        return response
 
 class LLMServiceFactory:
     @staticmethod
@@ -729,6 +622,11 @@ class FallbackService(LLMService):
             keywords.extend(additional[:10-len(keywords)])
         
         return keywords[:10]
+    
+    def extract_persons(self, content: str, page_title: str = "") -> PersonExtractionResult:
+        """폴백 서비스에서는 인물 정보 추출 불가"""
+        logger.warning("폴백 서비스는 인물 정보 추출을 지원하지 않습니다.")
+        return PersonExtractionResult(persons=[])
 
 # 기본 LLM 서비스 인스턴스
 def initialize_llm_service():
