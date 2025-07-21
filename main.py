@@ -564,6 +564,19 @@ async def get_all_keywords_mindmap(
         logger.error(f"전체 키워드 마인드맵 생성 오류: {str(e)}")
         raise HTTPException(status_code=500, detail="전체 키워드 마인드맵 생성 중 오류 발생")
 
+@app.get("/mindmap-combined", response_model=MindmapData)
+async def get_combined_mindmap(
+    threshold: float = 0.3,
+    limit: int = 200
+):
+    """타이틀과 키워드를 모두 표시하는 통합 마인드맵 데이터 조회"""
+    try:
+        mindmap_data = mindmap_service.generate_combined_mindmap(threshold, limit)
+        return mindmap_data
+    except Exception as e:
+        logger.error(f"통합 마인드맵 생성 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail="통합 마인드맵 생성 중 오류 발생")
+
 @app.get("/keywords", response_model=List[str])
 async def get_all_keywords():
     """모든 키워드 목록 조회"""

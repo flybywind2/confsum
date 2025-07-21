@@ -554,6 +554,154 @@ class MindmapService:
             links=links,
             center_node=center_node
         )
+    
+    def generate_combined_mindmap(self, threshold: float = None, limit: int = 200) -> MindmapData:
+        """타이틀과 키워드를 모두 보여주는 결합 마인드맵 생성"""
+        threshold = threshold or self.threshold
+        
+        logger.info(f"결합 마인드맵 생성 시작: threshold={threshold}, limit={limit}")
+        
+        # 모든 페이지 조회
+        all_pages = db_manager.get_all_pages(limit=limit)
+        
+        if not all_pages:
+            return MindmapData(nodes=[], links=[], center_node="")
+        
+        # 키워드 빈도 계산
+        keyword_count = {}
+        keyword_pages_map = {}
+        
+        for page in all_pages:
+            for kw in page.keywords_list:
+                kw_lower = kw.lower()
+                keyword_count[kw_lower] = keyword_count.get(kw_lower, 0) + 1
+                if kw_lower not in keyword_pages_map:
+                    keyword_pages_map[kw_lower] = []
+                keyword_pages_map[kw_lower].append(page)
+        
+        # 자주 등장하는 키워드들만 선택 (최소 2번 이상)
+        frequent_keywords = [(kw, count) for kw, count in keyword_count.items() if count >= 2]
+        frequent_keywords.sort(key=lambda x: x[1], reverse=True)
+        frequent_keywords = frequent_keywords[:30]  # 상위 30개 키워드
+        selected_keywords = {kw for kw, _ in frequent_keywords}
+        
+        nodes = []
+        
+        # 1. 페이지 노드 생성
+        for page in all_pages:
+            node = MindmapNode(
+                id=f"page_{page.page_id}",
+                title=f"📄 {page.title}",
+                keywords=page.keywords_list,
+                url=page.url or "",
+                summary=page.summary or "",
+                space_key=getattr(page, 'space_key', None),
+                size=max(15, min(35, len(page.keywords_list) * 3))  # 페이지 크기
+            )
+            nodes.append(node)
+        
+        # 2. 키워드 노드 생성
+        max_count = max([count for _, count in frequent_keywords]) if frequent_keywords else 1
+        for keyword, count in frequent_keywords:
+            # 키워드를 포함하는 페이지 정보
+            page_info_list = []
+            for page in keyword_pages_map[keyword]:
+                page_info_list.append({
+                    'page_id': page.page_id,
+                    'title': page.title,
+                    'summary': page.summary or "",
+                    'url': page.url or ""
+                })
+            
+            import json
+            pages_json = json.dumps(page_info_list, ensure_ascii=False)
+            
+            # 키워드 빈도에 따른 크기 결정
+            size = int((count / max_count) * 25) + 8
+            
+            node = MindmapNode(
+                id=f"keyword_{keyword}",
+                title=f"🏷️ {keyword}",
+                keywords=[keyword],
+                url="",
+                summary=pages_json,
+                size=size
+            )
+            nodes.append(node)
+        
+        # 링크 생성
+        links = []
+        
+        # 1. 페이지-키워드 링크 (페이지가 키워드를 포함하는 경우)
+        for page in all_pages:
+            for kw in page.keywords_list:
+                kw_lower = kw.lower()
+                if kw_lower in selected_keywords:
+                    link = MindmapLink(
+                        source=f"page_{page.page_id}",
+                        target=f"keyword_{kw_lower}",
+                        weight=0.8,  # 페이지-키워드 링크는 강한 연결
+                        common_keywords=[kw]
+                    )
+                    links.append(link)
+        
+        # 2. 페이지-페이지 링크 (키워드 유사도 기반)
+        for i, page1 in enumerate(all_pages):
+            for page2 in all_pages[i+1:]:
+                similarity = calculate_keyword_similarity(
+                    page1.keywords_list, 
+                    page2.keywords_list
+                )
+                
+                if similarity >= threshold:
+                    common_kws = get_common_keywords(
+                        page1.keywords_list, 
+                        page2.keywords_list
+                    )
+                    
+                    link = MindmapLink(
+                        source=f"page_{page1.page_id}",
+                        target=f"page_{page2.page_id}",
+                        weight=similarity,
+                        common_keywords=common_kws
+                    )
+                    links.append(link)
+        
+        # 3. 키워드-키워드 링크 (동시 출현 관계)
+        keyword_cooccurrence = {}
+        for page in all_pages:
+            page_keywords = [kw.lower() for kw in page.keywords_list if kw.lower() in selected_keywords]
+            for i, kw1 in enumerate(page_keywords):
+                for kw2 in page_keywords[i+1:]:
+                    if kw1 != kw2:
+                        pair = tuple(sorted([kw1, kw2]))
+                        keyword_cooccurrence[pair] = keyword_cooccurrence.get(pair, 0) + 1
+        
+        for (kw1, kw2), cooccur_count in keyword_cooccurrence.items():
+            if cooccur_count >= 2:  # 최소 2번 이상 함께 등장
+                weight = min(cooccur_count / 5.0, 0.9)  # 0.4 ~ 0.9 범위
+                
+                link = MindmapLink(
+                    source=f"keyword_{kw1}",
+                    target=f"keyword_{kw2}",
+                    weight=weight,
+                    common_keywords=[kw1, kw2]
+                )
+                links.append(link)
+        
+        # 중심 노드 선택 (가장 많은 키워드를 가진 페이지)
+        center_node = ""
+        if all_pages:
+            center_page = max(all_pages, key=lambda p: len(p.keywords_list))
+            center_node = f"page_{center_page.page_id}"
+        
+        logger.info(f"결합 마인드맵 생성 완료: 노드 {len(nodes)}개 (페이지 {len(all_pages)}개, 키워드 {len(frequent_keywords)}개), 링크 {len(links)}개")
+        
+        return MindmapData(
+            nodes=nodes,
+            links=links,
+            center_node=center_node
+        )
 
 # 싱글톤 인스턴스
 mindmap_service = MindmapService()

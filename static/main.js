@@ -275,7 +275,7 @@ class ConfluenceController {
                 <p><strong>요약:</strong> ${summary.summary}</p>
                 <div class="keywords">
                     <strong>키워드:</strong>
-                    ${summary.keywords.map(keyword => `<span class="keyword">${keyword}</span>`).join('')}
+                    ${Array.isArray(summary.keywords) ? summary.keywords.map(keyword => `<span class="keyword">${keyword}</span>`).join('') : '키워드 없음'}
                 </div>
                 <p><strong>URL:</strong> <a href="${summary.url}" target="_blank">${summary.url}</a></p>
             </div>
@@ -455,7 +455,7 @@ class ConfluenceController {
                         padding: 10px;
                         margin: 10px 0;
                     ">
-                        ${keywords.slice(0, 50).map((keyword, index) => `
+                        ${Array.isArray(keywords) ? keywords.slice(0, 50).map((keyword, index) => `
                             <label style="
                                 display: block;
                                 padding: 5px;
@@ -466,7 +466,7 @@ class ConfluenceController {
                                 ${keyword} 
                                 <small style="color: #666;">(빈도: ${index + 1})</small>
                             </label>
-                        `).join('')}
+                        `).join('') : '<p>키워드가 없습니다.</p>'}
                     </div>
                     <div style="text-align: center; margin-top: 15px;">
                         <button id="confirmKeyword" class="btn btn-primary" style="margin-right: 10px;">마인드맵 생성</button>

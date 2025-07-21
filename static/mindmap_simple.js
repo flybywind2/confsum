@@ -8,6 +8,265 @@ let currentThreshold = 0.2;
 let currentSimulation = null;
 let currentSvg = null;
 
+// 숨겨진 노드 관리
+let hiddenNodes = new Set();
+const HIDDEN_NODES_KEY = 'mindmap_hidden_nodes';
+
+// 페이지별 제목과 버튼 관리
+function updatePageHeaderAndButtons(mode, data = null, extra = {}) {
+    const keywordMindmapBtn = document.getElementById('goToKeywordMindmap');
+    const allMindmapBtn = document.getElementById('goToAllMindmap');
+    const combinedMindmapBtn = document.getElementById('goToCombinedMindmap');
+    
+    // 모든 버튼 초기화
+    [keywordMindmapBtn, allMindmapBtn, combinedMindmapBtn].forEach(btn => {
+        if (btn) btn.style.display = 'none';
+    });
+    
+    switch (mode) {
+        case 'keyword':
+            // 특정 키워드 마인드맵
+            document.querySelector('h1').textContent = `키워드 '${extra.keyword}' 마인드맵`;
+            document.querySelector('#subtitle').textContent = `'${extra.keyword}' 키워드를 포함한 ${data?.nodes?.length || 0}개 페이지의 관계 시각화`;
+            if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
+            if (combinedMindmapBtn) combinedMindmapBtn.style.display = 'inline-block';
+            break;
+            
+        case 'all':
+            // 전체 페이지 마인드맵
+            document.querySelector('h1').textContent = '전체 페이지 마인드맵';
+            document.querySelector('#subtitle').textContent = `총 ${data?.nodes?.length || 0}개 페이지의 키워드 관계 시각화`;
+            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
+            if (combinedMindmapBtn) combinedMindmapBtn.style.display = 'inline-block';
+            break;
+            
+        case 'all_keywords':
+            // 전체 키워드 네트워크 마인드맵
+            document.querySelector('h1').textContent = '전체 키워드 네트워크 마인드맵';
+            document.querySelector('#subtitle').textContent = `${data?.nodes?.length || 0}개 주요 키워드 간의 관계 네트워크`;
+            if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
+            if (combinedMindmapBtn) combinedMindmapBtn.style.display = 'inline-block';
+            break;
+            
+        case 'combined':
+            // 결합 마인드맵
+            const pageNodes = data?.nodes?.filter(n => n.id.startsWith('page_')) || [];
+            const keywordNodes = data?.nodes?.filter(n => n.id.startsWith('keyword_')) || [];
+            document.querySelector('h1').textContent = '결합 마인드맵 (타이틀 + 키워드)';
+            document.querySelector('#subtitle').textContent = `페이지 ${pageNodes.length}개 + 키워드 ${keywordNodes.length}개의 통합 네트워크`;
+            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
+            if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
+            break;
+            
+        case 'specific':
+            // 특정 페이지 마인드맵
+            document.querySelector('h1').textContent = `${extra.centerTitle || '특정 페이지'} - 마인드맵`;
+            document.querySelector('#subtitle').textContent = `${data?.nodes?.length || 0}개 페이지의 키워드 관계 시각화`;
+            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
+            if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
+            if (combinedMindmapBtn) combinedMindmapBtn.style.display = 'inline-block';
+            break;
+            
+        case 'space':
+            // Space 마인드맵
+            document.querySelector('h1').textContent = `Space "${extra.spaceKey}" 마인드맵`;
+            document.querySelector('#subtitle').textContent = `Space "${extra.spaceKey}"의 ${data?.nodes?.length || 0}개 페이지 관계 시각화`;
+            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
+            if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
+            if (combinedMindmapBtn) combinedMindmapBtn.style.display = 'inline-block';
+            break;
+            
+        case 'space_keyword':
+            // Space 키워드 네트워크 마인드맵
+            document.querySelector('h1').textContent = `${extra.spaceKey} Space 키워드 네트워크 마인드맵`;
+            document.querySelector('#subtitle').textContent = `Space "${extra.spaceKey}"의 주요 키워드 네트워크`;
+            if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
+            if (combinedMindmapBtn) combinedMindmapBtn.style.display = 'inline-block';
+            break;
+            
+        default:
+            // 기본 마인드맵
+            document.querySelector('h1').textContent = 'Confluence 마인드맵';
+            document.querySelector('#subtitle').textContent = '키워드 기반 페이지 관계 시각화';
+            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
+            if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
+            if (combinedMindmapBtn) combinedMindmapBtn.style.display = 'inline-block';
+            break;
+    }
+    
+    console.log(`🎨 페이지 헤더 업데이트: ${mode} 모드`);
+}
+
+// localStorage에서 숨겨진 노드 목록 로드
+function loadHiddenNodes() {
+    try {
+        const stored = localStorage.getItem(HIDDEN_NODES_KEY);
+        if (stored) {
+            hiddenNodes = new Set(JSON.parse(stored));
+            console.log('🔐 숨겨진 노드 로드:', Array.from(hiddenNodes));
+        }
+    } catch (error) {
+        console.error('숨겨진 노드 로드 실패:', error);
+        hiddenNodes = new Set();
+    }
+}
+
+// localStorage에 숨겨진 노드 목록 저장
+function saveHiddenNodes() {
+    try {
+        localStorage.setItem(HIDDEN_NODES_KEY, JSON.stringify(Array.from(hiddenNodes)));
+        console.log('💾 숨겨진 노드 저장:', Array.from(hiddenNodes));
+        updateHiddenNodeCountUI();
+    } catch (error) {
+        console.error('숨겨진 노드 저장 실패:', error);
+    }
+}
+
+// UI에 숨겨진 노드 개수 업데이트
+function updateHiddenNodeCountUI() {
+    const countElement = document.getElementById('hiddenNodeCount');
+    if (countElement) {
+        countElement.textContent = hiddenNodes.size;
+    }
+}
+
+// 노드 숨기기/보이기
+function toggleNodeVisibility(nodeId) {
+    if (hiddenNodes.has(nodeId)) {
+        hiddenNodes.delete(nodeId);
+        console.log('👁️ 노드 표시:', nodeId);
+    } else {
+        hiddenNodes.add(nodeId);
+        console.log('🙈 노드 숨김:', nodeId);
+    }
+    saveHiddenNodes();
+    
+    // 마인드맵 다시 그리기
+    if (currentNodes.length > 0) {
+        createSimpleVisualization(currentNodes, currentLinks);
+    }
+}
+
+// 우클릭 컨텍스트 메뉴 생성 및 관리
+function createContextMenu() {
+    // 기존 메뉴가 있으면 제거
+    let existingMenu = document.getElementById('nodeContextMenu');
+    if (existingMenu) {
+        existingMenu.remove();
+    }
+    
+    const menu = document.createElement('div');
+    menu.id = 'nodeContextMenu';
+    menu.style.cssText = `
+        position: fixed;
+        background: white;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        padding: 5px 0;
+        z-index: 1000;
+        display: none;
+        min-width: 120px;
+    `;
+    
+    document.body.appendChild(menu);
+    return menu;
+}
+
+// 우클릭 메뉴 표시
+function showNodeContextMenu(event, nodeData) {
+    const menu = createContextMenu();
+    
+    // 메뉴 항목들
+    const hideMenuItem = document.createElement('div');
+    hideMenuItem.style.cssText = `
+        padding: 8px 16px;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+    `;
+    hideMenuItem.textContent = '노드 숨기기';
+    hideMenuItem.onmouseover = () => hideMenuItem.style.backgroundColor = '#f5f5f5';
+    hideMenuItem.onmouseout = () => hideMenuItem.style.backgroundColor = 'white';
+    hideMenuItem.onclick = () => {
+        toggleNodeVisibility(nodeData.id);
+        hideContextMenu();
+    };
+    
+    const showHiddenMenuItem = document.createElement('div');
+    showHiddenMenuItem.style.cssText = `
+        padding: 8px 16px;
+        cursor: pointer;
+        color: #666;
+    `;
+    showHiddenMenuItem.textContent = `숨긴 노드 관리 (${hiddenNodes.size}개)`;
+    showHiddenMenuItem.onmouseover = () => showHiddenMenuItem.style.backgroundColor = '#f5f5f5';
+    showHiddenMenuItem.onmouseout = () => showHiddenMenuItem.style.backgroundColor = 'white';
+    showHiddenMenuItem.onclick = () => {
+        showHiddenNodesModal();
+        hideContextMenu();
+    };
+    
+    menu.appendChild(hideMenuItem);
+    menu.appendChild(showHiddenMenuItem);
+    
+    // 메뉴 위치 설정
+    menu.style.left = event.pageX + 'px';
+    menu.style.top = event.pageY + 'px';
+    menu.style.display = 'block';
+    
+    // 클릭 외부 영역시 메뉴 숨기기
+    setTimeout(() => {
+        document.addEventListener('click', hideContextMenu);
+    }, 10);
+}
+
+// 컨텍스트 메뉴 숨기기
+function hideContextMenu() {
+    const menu = document.getElementById('nodeContextMenu');
+    if (menu) {
+        menu.style.display = 'none';
+    }
+    document.removeEventListener('click', hideContextMenu);
+}
+
+// 숨겨진 노드 관리 모달 표시
+function showHiddenNodesModal() {
+    if (hiddenNodes.size === 0) {
+        alert('숨겨진 노드가 없습니다.\n\n노드를 숨기려면 노드에서 우클릭 > "노드 숨기기"를 선택하세요.');
+        return;
+    }
+    
+    const hiddenNodesList = Array.from(hiddenNodes).map(nodeId => {
+        const node = currentNodes.find(n => n.id === nodeId);
+        return node ? `• ${node.title}` : `• ${nodeId}`;
+    });
+    
+    const message = `현재 ${hiddenNodes.size}개의 노드가 숨겨져 있습니다:\n\n${hiddenNodesList.join('\n')}\n\n모든 숨겨진 노드를 다시 표시하시겠습니까?`;
+    
+    if (confirm(message)) {
+        const previousCount = hiddenNodes.size;
+        hiddenNodes.clear();
+        saveHiddenNodes();
+        if (currentNodes.length > 0) {
+            createSimpleVisualization(currentNodes, currentLinks);
+        }
+        alert(`${previousCount}개의 노드를 모두 표시했습니다.`);
+        console.log('👁️ 모든 숨겨진 노드 표시');
+    }
+}
+
+// 페이지 로드 시 숨겨진 노드 목록 로드
+document.addEventListener('DOMContentLoaded', function() {
+    loadHiddenNodes();
+    updateHiddenNodeCountUI();
+    
+    // 숨긴 노드 관리 버튼 이벤트
+    const showHiddenBtn = document.getElementById('showHiddenNodes');
+    if (showHiddenBtn) {
+        showHiddenBtn.addEventListener('click', showHiddenNodesModal);
+    }
+});
+
 // 모달 관련 함수들 (상단에 정의)
 async function openPageModal(pageId) {
     try {
@@ -171,9 +430,8 @@ async function loadKeywordMindmap(keyword) {
             return;
         }
         
-        // 제목 업데이트
-        document.querySelector('h1').textContent = `키워드 '${keyword}' 마인드맵`;
-        document.querySelector('#subtitle').textContent = `'${keyword}' 키워드를 포함한 ${data.nodes.length}개 페이지의 관계 시각화`;
+        // 제목과 버튼 업데이트
+        updatePageHeaderAndButtons('keyword', data, { keyword });
         
         // 전역 변수에 저장
         currentNodes = data.nodes;
@@ -220,9 +478,8 @@ async function loadAllMindmap() {
             return;
         }
         
-        // 제목 업데이트
-        document.querySelector('h1').textContent = '전체 페이지 마인드맵';
-        document.querySelector('#subtitle').textContent = `총 ${data.nodes.length}개 페이지의 키워드 관계 시각화`;
+        // 제목과 버튼 업데이트
+        updatePageHeaderAndButtons('all', data);
         
         // 전역 변수에 저장
         currentNodes = data.nodes;
@@ -271,9 +528,8 @@ async function loadAllKeywordsMindmap() {
             return;
         }
         
-        // 제목 업데이트
-        document.querySelector('h1').textContent = '전체 키워드 네트워크 마인드맵';
-        document.querySelector('#subtitle').textContent = `${data.nodes.length}개 주요 키워드 간의 관계 네트워크`;
+        // 제목과 버튼 업데이트
+        updatePageHeaderAndButtons('all_keywords', data);
         
         // 전역 변수에 저장
         currentNodes = data.nodes;
@@ -287,6 +543,44 @@ async function loadAllKeywordsMindmap() {
     } catch (error) {
         console.error(`❌ 전체 키워드 마인드맵 로드 실패:`, error);
         showMessage(`전체 키워드 마인드맵 로드 실패: ${error.message}`);
+    }
+}
+
+// 결합 마인드맵 로드 (타이틀 + 키워드)
+async function loadCombinedMindmap() {
+    console.log('🔄 결합 마인드맵 로드 시작');
+    
+    try {
+        const response = await fetch(`/mindmap-combined?threshold=${currentThreshold}&limit=200`);
+        console.log(`📡 API 응답: ${response.status}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log(`📊 데이터: 노드 ${data.nodes?.length || 0}개, 링크 ${data.links?.length || 0}개`);
+        
+        if (!data.nodes || data.nodes.length === 0) {
+            showMessage('저장된 데이터가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
+            return;
+        }
+        
+        // 제목과 버튼 업데이트
+        updatePageHeaderAndButtons('combined', data);
+        
+        // 전역 변수에 저장
+        currentNodes = data.nodes;
+        currentLinks = data.links;
+        
+        // 간단한 D3 시각화
+        createSimpleVisualization(currentNodes, currentLinks);
+        
+        console.log('✅ 결합 마인드맵 로드 완료');
+        
+    } catch (error) {
+        console.error(`❌ 결합 마인드맵 로드 실패:`, error);
+        showMessage(`결합 마인드맵 로드 실패: ${error.message}`);
     }
 }
 
@@ -317,9 +611,8 @@ async function loadSpecificMindmap(parentId) {
         const centerNode = data.nodes.find(n => n.id === data.center_node);
         const centerTitle = centerNode ? centerNode.title : '알 수 없는 페이지';
         
-        // 제목 업데이트
-        document.querySelector('h1').textContent = `${centerTitle} - 마인드맵`;
-        document.querySelector('#subtitle').textContent = `${data.nodes.length}개 페이지의 키워드 관계 시각화`;
+        // 제목과 버튼 업데이트
+        updatePageHeaderAndButtons('specific', data, { centerTitle });
         
         // 전역 변수에 저장
         currentNodes = data.nodes;
@@ -355,9 +648,8 @@ async function loadSpaceMindmap(spaceKey) {
             space: spaceKey
         });
         
-        // 제목 업데이트
-        document.querySelector('h1').textContent = `Space "${spaceKey}" 마인드맵`;
-        document.querySelector('#subtitle').textContent = `Space "${spaceKey}"의 ${data.nodes.length}개 페이지 관계 시각화`;
+        // 제목과 버튼 업데이트
+        updatePageHeaderAndButtons('space', data, { spaceKey });
         
         currentNodes = data.nodes;
         currentLinks = data.links;
@@ -606,8 +898,17 @@ function createSimpleVisualization(nodes, links) {
     const width = parseInt(svg.attr("width")) || 800;
     const height = parseInt(svg.attr("height")) || 600;
     
-    // 임계값에 따라 링크 필터링
-    const filteredLinks = links.filter(link => link.weight >= currentThreshold);
+    // 숨겨진 노드 필터링
+    const visibleNodes = nodes.filter(node => !hiddenNodes.has(node.id));
+    const visibleNodeIds = new Set(visibleNodes.map(node => node.id));
+    console.log(`👁️ 노드 필터링: 전체 ${nodes.length}개 → 숨겨진 ${hiddenNodes.size}개 제외 후 ${visibleNodes.length}개`);
+    
+    // 임계값에 따라 링크 필터링 (보이는 노드들 간의 링크만)
+    const filteredLinks = links.filter(link => 
+        link.weight >= currentThreshold && 
+        visibleNodeIds.has(link.source.id || link.source) && 
+        visibleNodeIds.has(link.target.id || link.target)
+    );
     console.log(`🔗 링크 필터링: 전체 ${links.length}개 → 임계값 ${currentThreshold} 적용 후 ${filteredLinks.length}개`);
     
     // 기존 내용 제거
@@ -625,8 +926,8 @@ function createSimpleVisualization(nodes, links) {
     // 메인 그룹 추가
     const mainGroup = svg.append("g").attr("class", "main-group");
     
-    // 시뮬레이션 생성
-    const simulation = d3.forceSimulation(nodes)
+    // 시뮬레이션 생성 (보이는 노드들로만)
+    const simulation = d3.forceSimulation(visibleNodes)
         .force("link", d3.forceLink(filteredLinks).id(d => d.id).distance(100))
         .force("charge", d3.forceManyBody().strength(-300))
         .force("center", d3.forceCenter(width / 2, height / 2));
@@ -641,9 +942,9 @@ function createSimpleVisualization(nodes, links) {
         .attr("stroke", "#999")
         .attr("stroke-width", 2);
     
-    // 노드 생성
+    // 노드 생성 (보이는 노드들로만)
     const node = mainGroup.selectAll(".node")
-        .data(nodes)
+        .data(visibleNodes)
         .enter().append("g")
         .attr("class", "node");
     
@@ -655,7 +956,11 @@ function createSimpleVisualization(nodes, links) {
             if (d.id && d.id.startsWith('keyword_')) {
                 return "#ff6b6b";  // 키워드 노드는 빨간색
             }
-            return "#4ecdc4";  // 일반 페이지 노드는 청록색
+            // 페이지 노드인지 확인 (ID가 'page_'로 시작)
+            else if (d.id && d.id.startsWith('page_')) {
+                return "#4ecdc4";  // 페이지 노드는 청록색
+            }
+            return "#95a5a6";  // 기타 노드는 회색
         })
         .attr("stroke", "#333")
         .attr("stroke-width", 2);
@@ -669,7 +974,11 @@ function createSimpleVisualization(nodes, links) {
             if (d.id && d.id.startsWith('keyword_')) {
                 return "14px";  // 키워드 노드는 큰 글자
             }
-            return "12px";  // 일반 노드는 기본 크기
+            // 페이지 노드인지 확인
+            else if (d.id && d.id.startsWith('page_')) {
+                return "11px";  // 페이지 노드는 작은 글자
+            }
+            return "12px";  // 기타 노드는 기본 크기
         })
         .attr("fill", "white")
         .attr("font-weight", d => {
@@ -700,7 +1009,7 @@ function createSimpleVisualization(nodes, links) {
                 }
             } else {
                 // 일반 페이지 노드 툴팁
-                return `${d.title}\n키워드: ${d.keywords ? d.keywords.join(", ") : "없음"}`;
+                return `${d.title}\n키워드: ${Array.isArray(d.keywords) ? d.keywords.join(", ") : (d.keywords || "없음")}`;
             }
         });
     
@@ -717,6 +1026,10 @@ function createSimpleVisualization(nodes, links) {
         d3.select(this).select("circle")
             .attr("stroke", "#ff6b6b")
             .attr("stroke-width", 4);
+    })
+    .on("contextmenu", function(event, d) {
+        event.preventDefault();
+        showNodeContextMenu(event, d);
     });
     
     // 드래그 기능
@@ -955,6 +1268,18 @@ function bindEventListeners() {
     } else {
         console.warn('⚠️ 전체 마인드맵 버튼을 찾을 수 없습니다');
     }
+    
+    // 결합 마인드맵 이동 버튼
+    const goToCombinedMindmapBtn = document.getElementById('goToCombinedMindmap');
+    if (goToCombinedMindmapBtn) {
+        console.log('🔄 결합 마인드맵 버튼 이벤트 등록');
+        goToCombinedMindmapBtn.addEventListener('click', () => {
+            goToCombinedMindmap();
+        });
+        console.log('✅ 결합 마인드맵 버튼 이벤트 등록 완료');
+    } else {
+        console.warn('⚠️ 결합 마인드맵 버튼을 찾을 수 없습니다');
+    }
 }
 
 // 전체 마인드맵으로 이동하는 함수
@@ -1027,6 +1352,40 @@ async function goToKeywordMindmap() {
         
     } catch (error) {
         console.error('❌ 키워드 마인드맵 이동 오류:', error);
+        alert(`오류 발생: ${error.message}`);
+    }
+}
+
+// 결합 마인드맵으로 이동하는 함수
+async function goToCombinedMindmap() {
+    console.log('🚀 결합 마인드맵으로 이동 시작');
+    
+    try {
+        // 페이지 통계 확인
+        const response = await fetch('/pages/stats');
+        console.log('📡 통계 API 응답:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const stats = await response.json();
+        console.log('📊 통계 정보:', stats);
+        
+        if (stats.total_pages === 0) {
+            alert('저장된 페이지가 없습니다. 먼저 Confluence 페이지를 처리해주세요.');
+            return;
+        }
+        
+        console.log('🔄 결합 마인드맵으로 이동');
+        const url = '/mindmap?mode=combined';
+        console.log('🔗 생성된 URL:', url);
+        
+        // 현재 창에서 이동
+        window.location.href = url;
+        
+    } catch (error) {
+        console.error('❌ 결합 마인드맵 이동 오류:', error);
         alert(`오류 발생: ${error.message}`);
     }
 }
@@ -1223,34 +1582,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 이벤트 리스너 등록
         bindEventListeners();
         
-        // 모드에 따라 적절한 버튼 표시
-        const keywordMindmapBtn = document.getElementById('goToKeywordMindmap');
-        const allMindmapBtn = document.getElementById('goToAllMindmap');
-        
-        
         // 1. 키워드 모드 처리 (최우선)
         if (mode === 'keyword' && keyword) {
             console.log('🎯 키워드 모드 감지, 로드 시작');
-            // 키워드 모드에서는 전체 마인드맵 버튼 표시
-            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'none';
-            if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
             loadKeywordMindmap(keyword);
         } 
         // 2. 전체 모드 처리
         else if (mode === 'all') {
             console.log('🌐 전체 모드 감지, 로드 시작');
-            // 전체 모드에서는 키워드 마인드맵 버튼 표시
-            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
-            if (allMindmapBtn) allMindmapBtn.style.display = 'none';
             loadAllMindmap();
         } 
         // 2-1. 전체 키워드 네트워크 모드 처리
         else if (mode === 'all_keywords') {
             console.log('🏷️ 전체 키워드 네트워크 모드 감지, 로드 시작');
-            // 키워드 네트워크 모드에서는 전체 마인드맵 버튼 표시
-            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'none';
-            if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
             loadAllKeywordsMindmap();
+        }
+        // 2-2. 결합 마인드맵 모드 처리
+        else if (mode === 'combined') {
+            console.log('🔄 결합 마인드맵 모드 감지, 로드 시작');
+            loadCombinedMindmap();
         } 
         // 3. Space 모드 처리 (space가 있는 경우)
         else if (space) {
@@ -1259,8 +1609,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (type === 'keyword') {
                 // 키워드 마인드맵: 전체 키워드 네트워크 로드 후 Space 필터 적용
                 console.log('🏷️ Space 키워드 마인드맵 로드');
-                if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'none';
-                if (allMindmapBtn) allMindmapBtn.style.display = 'inline-block';
                 
                 // 키워드 마인드맵 로드 후 Space 필터 적용
                 await loadAllKeywordsMindmap();
@@ -1274,8 +1622,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                             spaceSelectInstance.clear();
                             spaceSelectInstance.addItem(space);
                             
-                            // 제목도 Space에 맞게 업데이트
-                            document.querySelector('h1').textContent = `${space} Space 키워드 네트워크 마인드맵`;
+                            // Space 키워드 마인드맵 제목 업데이트
+                            updatePageHeaderAndButtons('space_keyword', null, { spaceKey: space });
                         } else {
                             console.warn('❌ spaceSelectInstance가 아직 생성되지 않음');
                         }
@@ -1284,25 +1632,19 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 // 타이틀 마인드맵: Space 전용 마인드맵 로드
                 console.log('🗺️ Space 타이틀 마인드맵 로드');
-                if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
-                if (allMindmapBtn) allMindmapBtn.style.display = 'none';
                 loadSpaceMindmap(space);
             }
         } 
         // 4. 특정 페이지 모드 처리 (parent_id가 있는 경우)
         else if (parentId) {
             console.log('📄 특정 페이지 모드 감지, 로드 시작:', parentId);
-            // 특정 페이지 모드에서는 키워드 마인드맵 버튼 표시
-            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
-            if (allMindmapBtn) allMindmapBtn.style.display = 'none';
             loadSpecificMindmap(parentId);
         } 
         // 5. 모든 조건에 해당하지 않는 경우
         else {
             console.log('❌ 알 수 없는 모드');
-            // 기본 상태에서는 키워드 마인드맵 버튼만 표시
-            if (keywordMindmapBtn) keywordMindmapBtn.style.display = 'inline-block';
-            if (allMindmapBtn) allMindmapBtn.style.display = 'none';
+            // 기본 페이지 헤더 설정
+            updatePageHeaderAndButtons('default');
             showMessage('부모 페이지 ID가 지정되지 않았습니다. 홈페이지에서 마인드맵 버튼을 사용해주세요.');
         }
         

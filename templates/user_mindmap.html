@@ -530,7 +530,7 @@
                     <strong>${d.title}</strong><br>
                     관계: ${d.relation_to_user}<br>
                     컨텍스트: ${d.user_context || '없음'}<br>
-                    키워드: ${d.keywords.join(', ') || '없음'}
+                    키워드: ${Array.isArray(d.keywords) ? d.keywords.join(', ') : (d.keywords || '없음')}
                 `;
                 tooltip.style.display = 'block';
                 tooltip.style.left = event.pageX + 10 + 'px';

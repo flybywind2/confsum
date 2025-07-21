@@ -4,7 +4,7 @@ import logging
 import json
 import re
 from config import config
-from rag_chunking import HierarchicalChunker, RAGChunk
+from rag_chunking import RAGChunkingService, RAGChunk
 from models import PersonExtractionResult, ExtractedPerson
 
 logger = logging.getLogger(__name__)
@@ -32,16 +32,16 @@ class LLMService(ABC):
             # 짧은 콘텐츠거나 chunking 비활성화시 기본 요약 사용
             return self.summarize(content)
         
+        # 원본 청크 사용 설정이 활성화되어 있으면 새로운 방식 사용
+        if config.RAG_USE_RAW_CHUNKS:
+            return self.chunk_based_analyze_raw(content, page_title, use_chunking, config.RAG_MAX_CHUNKS)
+        
         try:
-            # HierarchicalChunker 초기화
-            chunker = HierarchicalChunker(
-                chunk_size=config.RAG_CHUNK_SIZE,
-                max_chunk_size=config.RAG_MAX_CHUNK_SIZE,
-                overlap_tokens=config.RAG_OVERLAP_TOKENS
-            )
+            # RAGChunkingService 초기화
+            chunking_service = RAGChunkingService()
             
             # 콘텐츠를 최적화된 chunk로 분할
-            chunks = chunker.chunk_content(content, page_title)
+            chunks = chunking_service.chunk_content(content, page_title or "unknown")
             
             if not chunks:
                 logger.warning("Chunking 결과가 비어있음, 기본 요약 사용")
@@ -62,7 +62,7 @@ class LLMService(ABC):
             
             if not chunk_summaries:
                 logger.warning("모든 chunk 요약 실패, 기본 요약 사용")
-                return self.summarize(content[:4000])
+                return self.summarize(content)
             
             # chunk 요약들을 종합하여 최종 요약 생성
             combined_summary = " ".join(chunk_summaries)
@@ -79,6 +79,73 @@ class LLMService(ABC):
             logger.error(f"RAG chunking 요약 실패, 기본 요약 사용: {str(e)}")
             return self.summarize(content)
     
+    def chunk_based_analyze_raw(self, content: str, page_title: str = "", use_chunking: bool = None, max_chunks: int = 3) -> str:
+        """RAG 청킹을 사용하여 요약 없이 원본 청크들을 분석하여 답변 생성"""
+        if use_chunking is None:
+            use_chunking = config.RAG_ENABLED
+        
+        if not use_chunking or len(content) <= config.RAG_CHUNK_SIZE:
+            # 짧은 콘텐츠거나 chunking 비활성화시 기본 요약 사용
+            return self.summarize(content)
+        
+        try:
+            # RAGChunkingService 초기화
+            chunking_service = RAGChunkingService()
+            
+            # 콘텐츠를 최적화된 chunk로 분할
+            chunks = chunking_service.chunk_content(content, page_title or "unknown")
+            
+            if not chunks:
+                logger.warning("Chunking 결과가 비어있음, 기본 요약 사용")
+                return self.summarize(content)
+            
+            logger.info(f"RAG chunking 완료: {len(chunks)}개 청크 생성")
+            
+            # 품질 점수가 높은 상위 청크들 선택 (품질점수와 길이를 모두 고려)
+            def get_chunk_priority(chunk):
+                quality = chunk.metadata.get('quality_score', 0.0)
+                length_bonus = min(len(chunk.content) / 1000, 0.2)  # 길이에 따른 보너스 (최대 0.2)
+                return quality + length_bonus
+            
+            sorted_chunks = sorted(chunks, key=get_chunk_priority, reverse=True)
+            selected_chunks = sorted_chunks[:max_chunks]
+            
+            logger.info(f"선택된 청크들의 품질 점수: {[round(get_chunk_priority(chunk), 2) for chunk in selected_chunks]}")
+            
+            # 선택된 청크들의 원본 내용을 결합
+            combined_content = "\n\n".join([
+                f"[청크 {i+1} - {chunk.chunk_type.value}]\n{chunk.content}" 
+                for i, chunk in enumerate(selected_chunks)
+            ])
+            
+            # 토큰 제한 확인 (매우 긴 경우에만)
+            if len(combined_content) > 8000:
+                # 너무 길면 각 청크를 적당히 자름
+                truncated_chunks = []
+                for i, chunk in enumerate(selected_chunks):
+                    chunk_content = chunk.content[:2400] + "..." if len(chunk.content) > 2400 else chunk.content
+                    truncated_chunks.append(f"[청크 {i+1} - {chunk.chunk_type.value}]\n{chunk_content}")
+                combined_content = "\n\n".join(truncated_chunks)
+            
+            # 종합 분석 프롬프트 생성  
+            analysis_prompt = f"""다음은 문서 "{page_title}"에서 추출된 주요 청크들입니다. 각 청크의 정보를 손실 없이 보존하면서 체계적으로 정리해주세요.
+
+{combined_content}
+
+위 청크들의 내용을 기반으로:
+1. 각 청크의 핵심 정보를 빠뜨리지 말고 모두 포함하세요
+2. 구체적인 데이터, 숫자, 절차, 인명 등은 정확히 유지하세요  
+3. 청크들 간의 관계와 전체적인 맥락을 설명하세요
+4. 중요한 세부사항을 생략하지 말고 체계적으로 구성하세요
+
+정보 손실 없이 포괄적으로 정리해주세요."""
+
+            return self.summarize(analysis_prompt)
+            
+        except Exception as e:
+            logger.error(f"RAG 원본 청크 분석 실패, 기본 요약 사용: {str(e)}")
+            return self.summarize(content)
+    
     def chunk_based_extract_keywords(self, content: str, page_title: str = "", use_chunking: bool = None) -> List[str]:
         """RAG 최적화된 chunking 기반 키워드 추출"""
         if use_chunking is None:
@@ -89,15 +156,11 @@ class LLMService(ABC):
             return self.extract_keywords(content)
         
         try:
-            # HierarchicalChunker 초기화
-            chunker = HierarchicalChunker(
-                chunk_size=config.RAG_CHUNK_SIZE,
-                max_chunk_size=config.RAG_MAX_CHUNK_SIZE,
-                overlap_tokens=config.RAG_OVERLAP_TOKENS
-            )
+            # RAGChunkingService 초기화
+            chunking_service = RAGChunkingService()
             
             # 콘텐츠를 최적화된 chunk로 분할
-            chunks = chunker.chunk_content(content, page_title)
+            chunks = chunking_service.chunk_content(content, page_title or "unknown")
             
             if not chunks:
                 logger.warning("Chunking 결과가 비어있음, 기본 키워드 추출 사용")
@@ -115,7 +178,7 @@ class LLMService(ABC):
             
             if not all_keywords:
                 logger.warning("모든 chunk 키워드 추출 실패, 기본 키워드 추출 사용")
-                return self.extract_keywords(content[:4000])
+                return self.extract_keywords(content)
             
             # 중복 제거 및 빈도순 정렬
             from collections import Counter
@@ -175,8 +238,7 @@ class OllamaService(LLMService):
                     {'role': 'user', 'content': prompt}
                 ],
                 options={
-                    'temperature': 0.7,
-                    'num_predict': 200  # 응답 길이 제한
+                    'temperature': 0.7
                 }
             )
             return response['message']['content']
@@ -187,7 +249,7 @@ class OllamaService(LLMService):
     def summarize(self, content: str) -> str:
         """페이지 내용 요약 생성"""
         try:
-            prompt = config.SUMMARY_PROMPT.format(content=content[:4000])  # 토큰 제한
+            prompt = config.SUMMARY_PROMPT.format(content=content)
             return self._call_ollama(prompt)
         except Exception as e:
             logger.error(f"요약 생성 오류: {str(e)}")
@@ -196,7 +258,7 @@ class OllamaService(LLMService):
     def extract_keywords(self, content: str) -> List[str]:
         """키워드 추출"""
         try:
-            prompt = config.KEYWORDS_PROMPT.format(content=content[:4000])
+            prompt = config.KEYWORDS_PROMPT.format(content=content)
             response = self._call_ollama(prompt)
             
             # 응답에서 키워드 추출 (쉼표로 구분)
@@ -220,7 +282,9 @@ class OllamaService(LLMService):
             
             # JSON 응답 파싱
             try:
-                parsed_data = json.loads(response)
+                # 응답에서 JSON 부분만 추출 (```json으로 감싸진 경우 처리)
+                json_response = self._extract_json_from_response(response)
+                parsed_data = json.loads(json_response)
                 persons = []
                 
                 for person_data in parsed_data.get('persons', []):
@@ -237,8 +301,8 @@ class OllamaService(LLMService):
                 
                 return PersonExtractionResult(persons=persons)
                 
-            except json.JSONDecodeError:
-                logger.warning(f"LLM 응답 JSON 파싱 실패: {response}")
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"LLM 응답 JSON 파싱 실패: {str(e)[:100]}...")
                 return PersonExtractionResult(persons=[])
                 
         except Exception as e:
@@ -249,28 +313,43 @@ class OllamaService(LLMService):
         """정규표현식으로 후보 이름 패턴 추출"""
         candidates = set()
         
-        # 한글 이름 패턴 (2-4글자)
+        # 한글 이름 패턴 (2-4글자 또는 님으로 끝나는 것)
         korean_name_pattern = r'[가-힣]{2,4}(?=\s|님|씨|[,.]|$)'
         korean_names = re.findall(korean_name_pattern, content)
-        candidates.update(korean_names)
         
-        # 이메일에서 이름 추출
-        email_pattern = r'([a-zA-Z가-힣]+)@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        # '님'으로 끝나는 한글 이름 패턴 (3-5글자: 이름2-4글자 + 님)
+        korean_name_nim_pattern = r'[가-힣]{2,4}님(?=\s|[,.]|$)'
+        korean_names_nim = re.findall(korean_name_nim_pattern, content)
+        
+        candidates.update(korean_names)
+        candidates.update(korean_names_nim)
+        
+        # 이메일에서 한글 이름만 추출 (한글이 포함된 경우만)
+        email_pattern = r'([가-힣]{2,4})@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
         email_matches = re.findall(email_pattern, content)
         candidates.update(email_matches)
         
-        # 영문 이름 패턴 (FirstName LastName)
-        english_name_pattern = r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b'
-        english_names = re.findall(english_name_pattern, content)
-        candidates.update([name.strip() for name in english_names])
+        # 영문 이름은 제외 (한글 이름만 허용)
         
-        # 일반적이지 않은 단어들 필터링
-        filtered_candidates = []
+        # 일반적이지 않은 단어들 필터링 및 이름 정리
+        filtered_candidates = set()
+        excluded_words = {
+            '개발', '관리', '프로젝트', '문서', '페이지', '시스템', '회사', '부서', 
+            '팀장', '대리', '과장', '부장', '이사', '사장', '대표', '차장', '주임',
+            '센터', '사업부', '본부', '그룹', '계획', '업무', '담당', '책임'
+        }
+        
         for candidate in candidates:
-            if (len(candidate) >= 2 and 
-                candidate not in ['개발', '관리', '프로젝트', '문서', '페이지', '시스템'] and
-                not candidate.isdigit()):
-                filtered_candidates.append(candidate)
+            # '님' 제거 처리
+            clean_name = candidate.rstrip('님') if candidate.endswith('님') else candidate
+            
+            # 한글 2-4자 이름만 허용
+            if (re.match(r'^[가-힣]{2,4}$', clean_name) and 
+                clean_name not in excluded_words and
+                not clean_name.isdigit()):
+                filtered_candidates.add(clean_name)
+        
+        filtered_candidates = list(filtered_candidates)
         
         return filtered_candidates[:20]  # 최대 20개로 제한
     
@@ -281,7 +360,7 @@ class OllamaService(LLMService):
 문서 제목: {page_title}
 
 문서 내용:
-{content[:3000]}
+{content}
 
 후보 인물명: {', '.join(candidates)}
 
@@ -313,6 +392,31 @@ JSON 형식으로만 응답해주세요:
 }}"""
         return prompt
 
+    def _extract_json_from_response(self, response: str) -> str:
+        """응답에서 JSON 부분만 추출"""
+        # ```json으로 감싸진 경우 처리
+        if '```json' in response:
+            start = response.find('```json') + 7
+            end = response.find('```', start)
+            if end != -1:
+                return response[start:end].strip()
+        
+        # JSON 객체 부분만 추출 시도
+        response = response.strip()
+        start = response.find('{')
+        if start != -1:
+            # 마지막 }까지 찾기
+            brace_count = 0
+            for i, char in enumerate(response[start:], start):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        return response[start:i+1]
+        
+        return response
+
 class OpenAIService(LLMService):
     def __init__(self, api_key: str = None, model_name: str = None):
         self.api_key = api_key or config.OPENAI_API_KEY
@@ -334,7 +438,7 @@ class OpenAIService(LLMService):
     def summarize(self, content: str) -> str:
         """페이지 내용 요약 생성"""
         try:
-            prompt = config.SUMMARY_PROMPT.format(content=content[:4000])
+            prompt = config.SUMMARY_PROMPT.format(content=content)
             response = self.client.invoke(prompt)
             return response.content
         except Exception as e:
@@ -344,7 +448,7 @@ class OpenAIService(LLMService):
     def extract_keywords(self, content: str) -> List[str]:
         """키워드 추출"""
         try:
-            prompt = config.KEYWORDS_PROMPT.format(content=content[:4000])
+            prompt = config.KEYWORDS_PROMPT.format(content=content)
             response = self.client.invoke(prompt)
             
             # 응답에서 키워드 추출 (쉼표로 구분)
@@ -368,7 +472,9 @@ class OpenAIService(LLMService):
             
             # JSON 응답 파싱
             try:
-                parsed_data = json.loads(response.content)
+                # 응답에서 JSON 부분만 추출 (```json으로 감싸진 경우 처리)
+                json_response = self._extract_json_from_response(response.content)
+                parsed_data = json.loads(json_response)
                 persons = []
                 
                 for person_data in parsed_data.get('persons', []):
@@ -385,8 +491,8 @@ class OpenAIService(LLMService):
                 
                 return PersonExtractionResult(persons=persons)
                 
-            except json.JSONDecodeError:
-                logger.warning(f"LLM 응답 JSON 파싱 실패: {response.content}")
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.warning(f"LLM 응답 JSON 파싱 실패: {str(e)[:100]}...")
                 return PersonExtractionResult(persons=[])
                 
         except Exception as e:
@@ -397,28 +503,43 @@ class OpenAIService(LLMService):
         """정규표현식으로 후보 이름 패턴 추출"""
         candidates = set()
         
-        # 한글 이름 패턴 (2-4글자)
+        # 한글 이름 패턴 (2-4글자 또는 님으로 끝나는 것)
         korean_name_pattern = r'[가-힣]{2,4}(?=\s|님|씨|[,.]|$)'
         korean_names = re.findall(korean_name_pattern, content)
-        candidates.update(korean_names)
         
-        # 이메일에서 이름 추출
-        email_pattern = r'([a-zA-Z가-힣]+)@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+        # '님'으로 끝나는 한글 이름 패턴 (3-5글자: 이름2-4글자 + 님)
+        korean_name_nim_pattern = r'[가-힣]{2,4}님(?=\s|[,.]|$)'
+        korean_names_nim = re.findall(korean_name_nim_pattern, content)
+        
+        candidates.update(korean_names)
+        candidates.update(korean_names_nim)
+        
+        # 이메일에서 한글 이름만 추출 (한글이 포함된 경우만)
+        email_pattern = r'([가-힣]{2,4})@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
         email_matches = re.findall(email_pattern, content)
         candidates.update(email_matches)
         
-        # 영문 이름 패턴 (FirstName LastName)
-        english_name_pattern = r'\b[A-Z][a-z]+\s+[A-Z][a-z]+\b'
-        english_names = re.findall(english_name_pattern, content)
-        candidates.update([name.strip() for name in english_names])
+        # 영문 이름은 제외 (한글 이름만 허용)
         
-        # 일반적이지 않은 단어들 필터링
-        filtered_candidates = []
+        # 일반적이지 않은 단어들 필터링 및 이름 정리
+        filtered_candidates = set()
+        excluded_words = {
+            '개발', '관리', '프로젝트', '문서', '페이지', '시스템', '회사', '부서', 
+            '팀장', '대리', '과장', '부장', '이사', '사장', '대표', '차장', '주임',
+            '센터', '사업부', '본부', '그룹', '계획', '업무', '담당', '책임'
+        }
+        
         for candidate in candidates:
-            if (len(candidate) >= 2 and 
-                candidate not in ['개발', '관리', '프로젝트', '문서', '페이지', '시스템'] and
-                not candidate.isdigit()):
-                filtered_candidates.append(candidate)
+            # '님' 제거 처리
+            clean_name = candidate.rstrip('님') if candidate.endswith('님') else candidate
+            
+            # 한글 2-4자 이름만 허용
+            if (re.match(r'^[가-힣]{2,4}$', clean_name) and 
+                clean_name not in excluded_words and
+                not clean_name.isdigit()):
+                filtered_candidates.add(clean_name)
+        
+        filtered_candidates = list(filtered_candidates)
         
         return filtered_candidates[:20]  # 최대 20개로 제한
     
@@ -429,7 +550,7 @@ class OpenAIService(LLMService):
 문서 제목: {page_title}
 
 문서 내용:
-{content[:3000]}
+{content}
 
 후보 인물명: {', '.join(candidates)}
 
@@ -460,6 +581,31 @@ JSON 형식으로만 응답해주세요:
   ]
 }}"""
         return prompt
+    
+    def _extract_json_from_response(self, response: str) -> str:
+        """응답에서 JSON 부분만 추출"""
+        # ```json으로 감싸진 경우 처리
+        if '```json' in response:
+            start = response.find('```json') + 7
+            end = response.find('```', start)
+            if end != -1:
+                return response[start:end].strip()
+        
+        # JSON 객체 부분만 추출 시도
+        response = response.strip()
+        start = response.find('{')
+        if start != -1:
+            # 마지막 }까지 찾기
+            brace_count = 0
+            for i, char in enumerate(response[start:], start):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        return response[start:i+1]
+        
+        return response
 
 class LLMServiceFactory:
     @staticmethod

@@ -212,6 +212,7 @@
                 <a href="/data" class="btn btn-info">데이터 조회</a>
                 <button id="goToKeywordMindmap" class="btn btn-success">키워드 마인드맵</button>
                 <button id="goToAllMindmap" class="btn btn-warning" style="display: none;">전체 마인드맵</button>
+                <button id="goToCombinedMindmap" class="btn btn-info">결합 마인드맵</button>
                 <button id="toggleMode" class="btn btn-primary" style="display: none;">모드 전환</button>
                 <a href="/user-mindmap" class="btn btn-warning">사용자별 마인드맵</a>
             </nav>
@@ -232,6 +233,10 @@
             
             <label for="keywordFilter">키워드 필터:</label>
             <input type="text" id="keywordFilter" placeholder="키워드 입력">
+            
+            <button id="showHiddenNodes" class="btn btn-info btn-sm" style="margin-left: 10px;">
+                🙈 숨긴 노드 (<span id="hiddenNodeCount">0</span>)
+            </button>
             
             <button id="resetView" class="btn btn-secondary">뷰 리셋</button>
         </div>

@@ -28,6 +28,8 @@ class Config:
     RAG_MAX_CHUNK_SIZE = int(os.getenv("RAG_MAX_CHUNK_SIZE", "1024"))  # 최대 청크 크기 (토큰)
     RAG_OVERLAP_TOKENS = int(os.getenv("RAG_OVERLAP_TOKENS", "50"))    # 오버랩 토큰 수
     RAG_DEFAULT_STRATEGY = os.getenv("RAG_DEFAULT_STRATEGY", "hierarchical")  # 기본 청킹 전략
+    RAG_USE_RAW_CHUNKS = os.getenv("RAG_USE_RAW_CHUNKS", "true").lower() == "true"  # 원본 청크 사용 여부 (요약 안함)
+    RAG_MAX_CHUNKS = int(os.getenv("RAG_MAX_CHUNKS", "3"))            # 최대 사용할 청크 수
     RAG_PRESERVE_STRUCTURE = os.getenv("RAG_PRESERVE_STRUCTURE", "true").lower() == "true"
     
     # 프롬프트 설정
